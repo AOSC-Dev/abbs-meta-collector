@@ -1,0 +1,3 @@
+abbs_path = "/tmp/test-scanner"
+commits_db_path = "commits.sqlite"
+thread = 16
