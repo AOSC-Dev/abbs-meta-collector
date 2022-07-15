@@ -20,7 +20,7 @@ async fn main() {
     let commit_db = CommitDb::open(&config.commits_db_path).await.unwrap();
     let abbs_db = AbbsDb::open(&config).await.unwrap();
     let pkgs = package::scan_packages(&config.abbs_path);
-z
+
     // find packages that were deleted in current abbs
     let old_pkgs = abbs_db.get_packages_name().await.unwrap();
     let current_pkgs = pkgs.iter().map(|(pkg, _)| pkg.name.clone()).collect();
