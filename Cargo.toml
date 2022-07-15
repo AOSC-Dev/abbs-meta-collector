@@ -6,22 +6,25 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-abbs-meta-apml = {path = "/home/chez/github/abbs-meta-rs/apml"}
-abbs-meta-tree ={ path = "/home/chez/github/abbs-meta-rs/tree"}
+abbs-meta-apml = { git = "https://github.com/7rah/abbs-meta-rs" }
+abbs-meta-tree = { git = "https://github.com/7rah/abbs-meta-rs" }
 walkdir = "2.3.2"
 toml = "0.5.9"
 serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0.58"
-tracing-subscriber = {version = "0.3",features = ["env-filter"]}
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing = "0.1"
 serde_json = "1.0"
-git2 = {version = "0.14.4",default-features = false}
+git2 = { version = "0.14.4", default-features = false }
 rayon = "1.5.3"
-sea-orm = {version = "0.9.0",features = [ "sqlx-sqlite", "runtime-async-std-rustls" ]}
-async-std = {version = "1.12.0",features = ["attributes"]}
+sea-orm = { version = "0.9.0", features = [
+    "sqlx-sqlite",
+    "runtime-async-std-rustls",
+] }
+async-std = { version = "1.12.0", features = ["attributes"] }
 itertools = "0.10.3"
 indexmap = "1.9.1"
-time = {version = "0.3.11",features = ["formatting"]}
+time = { version = "0.3.11", features = ["formatting"] }
 
 
 [target.'cfg(all(target_env = "musl", target_pointer_width = "64"))'.dependencies.jemallocator]
@@ -30,3 +33,4 @@ version = "0.5.0"
 [profile.release]
 lto = "fat"
 codegen-units = 1
+panic = "abort"

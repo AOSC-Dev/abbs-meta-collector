@@ -34,6 +34,7 @@ dependencies = [
 [[package]]
 name = "abbs-meta-apml"
 version = "0.1.0"
+source = "git+https://github.com/7rah/abbs-meta-rs#289143bfbe2ef7950425e6b843e3ed2f349660e6"
 dependencies = [
  "aho-corasick",
  "annotate-snippets",
@@ -45,6 +46,7 @@ dependencies = [
 [[package]]
 name = "abbs-meta-tree"
 version = "0.1.0"
+source = "git+https://github.com/7rah/abbs-meta-rs#289143bfbe2ef7950425e6b843e3ed2f349660e6"
 dependencies = [
  "abbs-meta-apml",
  "anyhow",
