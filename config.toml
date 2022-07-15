@@ -1,3 +1,10 @@
-abbs_path = "/tmp/test-scanner"
-commits_db_path = "commits.sqlite"
-thread = 16
+abbs_path = "/tmp/aosc-os-abbs"
+commits_db_path = "/dev/shm/commits.sqlite"
+abbs_db_path = "/dev/shm/abbs.sqlite"
+thread = 64
+
+branch = "stable"
+category = "base"
+priority = 0
+name = "aosc-os-abbs"
+url = "https://github.com/AOSC-Dev/aosc-os-abbs/"
