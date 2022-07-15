@@ -1,18 +1,10 @@
 use super::Repository;
+use crate::skip_error;
 use anyhow::{Context, Result};
 use git2::{Delta, Oid, Time};
 use rayon::prelude::*;
 use std::path::PathBuf;
 use tracing::warn;
-
-macro_rules! skip_error {
-    ($res:expr) => {
-        match $res {
-            Ok(val) => val,
-            Err(_) => continue,
-        }
-    };
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FileStatus {
@@ -62,7 +54,14 @@ impl Repository {
         let repo = git2::Repository::open(repo_path)?;
 
         let mut revwalk = repo.revwalk()?;
-        revwalk.push_head()?;
+        let branch = self
+            .repo
+            .find_branch(&self.branch, git2::BranchType::Local)?;
+        let branch = branch
+            .into_reference()
+            .target()
+            .with_context(|| format!("branch {} doesn't exist", self.branch))?;
+        revwalk.push(branch)?;
 
         let mut oids = vec![];
 
@@ -89,20 +88,18 @@ impl Repository {
 
                     let parents: Vec<_> = commit.parents().collect();
 
-                    let parent = match parents.len() {
-                        1 | 2 => &parents[0],
+                    let parent_tree = match parents.len() {
+                        0 => None,
+                        1 | 2 => Some(skip_error!(parents[0].tree())),
                         n => {
                             warn!("{n} parents in commit {commit:?}");
                             continue;
                         }
                     };
+                    let parent_tree = parent_tree.as_ref();
 
                     let diff = repo
-                        .diff_tree_to_tree(
-                            Some(skip_error!(&parent.tree())),
-                            Some(skip_error!(&commit.tree())),
-                            None,
-                        )
+                        .diff_tree_to_tree(parent_tree, Some(skip_error!(&commit.tree())), None)
                         .ok()?;
                     for delta in diff.deltas() {
                         let new_file = delta.new_file();
