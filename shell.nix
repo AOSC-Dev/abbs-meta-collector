@@ -8,8 +8,10 @@ in
       pkgconfig
       openssl.dev
       rustup
+      cargo-watch
       zlib.dev
+      nixfmt
       ];
-    OPENSSL_DEV=openssl.dev;
+    OPENSSL_DEV = openssl.dev;
     ZLIB_DEV=zlib.dev;
   }
