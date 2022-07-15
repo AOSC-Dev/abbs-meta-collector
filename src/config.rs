@@ -5,11 +5,17 @@ use std::io::Read;
 use std::path::Path;
 use toml;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
     pub abbs_path: String,
     pub thread: usize,
     pub commits_db_path: String,
+    pub abbs_db_path: String,
+    pub branch: String,
+    pub priority: i32,
+    pub category: String,
+    pub name: String,
+    pub url: String,
 }
 
 impl Config {
