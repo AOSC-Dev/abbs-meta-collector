@@ -3,16 +3,13 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
-#[sea_orm(table_name = "commits")]
+#[sea_orm(table_name = "tree_branches")]
 pub struct Model {
-    pub commit_id: String,
-    pub commit_time: i64,
-    pub pkg_name: String,
-    pub pkg_version: String,
-    pub spec_path: String,
-    pub defines_path: String,
-    #[sea_orm(primary_key, auto_increment = true)]
-    pub id: u32,
+    #[sea_orm(primary_key, auto_increment = false)]
+    pub name: String,
+    pub tree: String,
+    pub branch: String,
+    pub priority: Option<i32>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter)]
