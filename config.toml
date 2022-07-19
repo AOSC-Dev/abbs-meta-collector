@@ -1,7 +1,6 @@
 abbs_path = "/tmp/aosc-os-abbs"
 commits_db_path = "/dev/shm/commits.sqlite"
 abbs_db_path = "/dev/shm/abbs.sqlite"
-thread = 64
 
 branch = "stable"
 category = "base"
