@@ -8,7 +8,6 @@ pub mod commit;
 
 pub struct Repository {
     repo_path: PathBuf,
-    thread: usize,
     repo: git2::Repository,
     branch: String,
 }
@@ -17,7 +16,7 @@ impl TryFrom<&Config> for Repository {
     type Error = anyhow::Error;
 
     fn try_from(config: &Config) -> Result<Self, Self::Error> {
-        let repo = Repository::open(&config.abbs_path, config.thread, &config.branch)?;
+        let repo = Repository::open(&config.abbs_path,  &config.branch)?;
         Ok(repo)
     }
 }
@@ -25,14 +24,12 @@ impl TryFrom<&Config> for Repository {
 impl Repository {
     pub fn open<P: AsRef<Path>, S: AsRef<str>>(
         path: P,
-        thread: usize,
         branch: S,
     ) -> Result<Repository> {
         let repo = Git2Repository::open(path.as_ref())?;
         repo.find_branch(branch.as_ref(), git2::BranchType::Local)?;
         Ok(Repository {
             repo_path: PathBuf::from(path.as_ref()),
-            thread,
             repo,
             branch: branch.as_ref().to_string(),
         })
