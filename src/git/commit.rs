@@ -1,9 +1,9 @@
 use super::Repository;
-use crate::skip_error;
-use anyhow::{Context, Result};
+use anyhow::{Context, Ok, Result};
 use git2::{Delta, Oid, Time};
 use rayon::prelude::*;
-use std::path::PathBuf;
+use state::LocalStorage;
+use std::path::{Path, PathBuf};
 use tracing::warn;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -78,40 +78,42 @@ impl Repository {
             return Ok(vec![]);
         }
 
-        let result: Vec<_> = oids
-            .par_chunks(ceil(oids.len(), self.thread))
-            .filter_map(|oids| {
-                let repo = git2::Repository::open(repo_path).ok()?;
-                let mut v = vec![];
-                for oid in oids {
-                    let commit = skip_error!(repo.find_commit(*oid));
+        static REPO: LocalStorage<git2::Repository> = LocalStorage::new();
+        let repo_path: &'static Path = Box::leak(repo_path.to_path_buf().into_boxed_path());
+        REPO.set(|| git2::Repository::open(repo_path.to_path_buf()).unwrap());
 
-                    let parents: Vec<_> = commit.parents().collect();
+        let result = oids
+            .par_iter()
+            .filter_map(|oid| {
+                let repo = REPO.get();
+                let commit = repo.find_commit(*oid).ok()?;
 
-                    let parent_tree = match parents.len() {
-                        0 => None,
-                        1 | 2 => Some(skip_error!(parents[0].tree())),
-                        n => {
-                            warn!("{n} parents in commit {commit:?}");
-                            continue;
-                        }
-                    };
-                    let parent_tree = parent_tree.as_ref();
+                let parents: Vec<_> = commit.parents().collect();
 
-                    let diff = repo
-                        .diff_tree_to_tree(parent_tree, Some(skip_error!(&commit.tree())), None)
-                        .ok()?;
-                    for delta in diff.deltas() {
-                        let new_file = delta.new_file();
-                        let path = new_file.path()?;
-
-                        v.push((
-                            commit.id(),
-                            commit.time(),
-                            path.to_path_buf(),
-                            delta.status().into(),
-                        ));
+                let parent_tree = match parents.len() {
+                    0 => None,
+                    1 | 2 => Some(parents[0].tree().ok()?),
+                    n => {
+                        warn!("{n} parents in commit {commit:?}");
+                        return None;
                     }
+                };
+                let parent_tree = parent_tree.as_ref();
+
+                let diff = repo
+                    .diff_tree_to_tree(parent_tree, Some(&commit.tree().ok()?), None)
+                    .ok()?;
+
+                let mut v = vec![];
+                for delta in diff.deltas() {
+                    let new_file = delta.new_file();
+                    let path = new_file.path()?;
+                    v.push((
+                        commit.id(),
+                        commit.time(),
+                        path.to_path_buf(),
+                        delta.status().into(),
+                    ));
                 }
                 Some(v)
             })
@@ -128,8 +130,4 @@ impl Repository {
             .with_context(|| "failed to get head".to_string())?;
         Ok(oid)
     }
-}
-
-fn ceil(a: usize, b: usize) -> usize {
-    (a + b - 1) / b
 }
