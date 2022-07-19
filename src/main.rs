@@ -4,7 +4,7 @@ use abbs_meta::{
     package, Config,
 };
 use std::collections::HashMap;
-use tracing::info;
+use tracing::{info, debug};
 
 #[cfg(all(target_env = "musl", target_pointer_width = "64"))]
 #[global_allocator]
@@ -50,7 +50,7 @@ async fn main() {
                 abbs_db.add_package(pkg, spec, &changes).await.unwrap();
             }
         } else {
-            info!("desperated package: {pkg_name}");
+            debug!("desperated package: {pkg_name}");
         }
     }
 }
