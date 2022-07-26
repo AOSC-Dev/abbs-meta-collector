@@ -82,7 +82,7 @@ impl Repository {
         let result = oids
             .par_iter()
             .filter_map(|oid| {
-                let repo = repo.get_or(|| git2::Repository::open(repo_path.to_path_buf()).unwrap());
+                let repo = repo.get_or(|| git2::Repository::open(repo_path).unwrap());
                 let commit = repo.find_commit(*oid).ok()?;
 
                 let parents: Vec<_> = commit.parents().collect();
