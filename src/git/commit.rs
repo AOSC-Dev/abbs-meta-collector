@@ -1,9 +1,9 @@
 use super::Repository;
-use anyhow::{Context, Ok, Result};
+use anyhow::{Context, Result};
 use git2::{Delta, Oid, Time};
 use rayon::prelude::*;
-use state::LocalStorage;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use thread_local::ThreadLocal;
 use tracing::warn;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -78,14 +78,11 @@ impl Repository {
             return Ok(vec![]);
         }
 
-        static REPO: LocalStorage<git2::Repository> = LocalStorage::new();
-        let repo_path: &'static Path = Box::leak(repo_path.to_path_buf().into_boxed_path());
-        REPO.set(|| git2::Repository::open(repo_path.to_path_buf()).unwrap());
-
+        let repo: ThreadLocal<git2::Repository> = ThreadLocal::new();
         let result = oids
             .par_iter()
             .filter_map(|oid| {
-                let repo = REPO.get();
+                let repo = repo.get_or(|| git2::Repository::open(repo_path.to_path_buf()).unwrap());
                 let commit = repo.find_commit(*oid).ok()?;
 
                 let parents: Vec<_> = commit.parents().collect();
@@ -119,7 +116,7 @@ impl Repository {
             })
             .flatten()
             .collect();
-        
+
         Ok(result)
     }
 

@@ -4,7 +4,7 @@ use abbs_meta::{
     package, Config,
 };
 use std::collections::HashMap;
-use tracing::{info, debug};
+use tracing::{debug, info};
 
 #[cfg(all(target_env = "musl", target_pointer_width = "64"))]
 #[global_allocator]
