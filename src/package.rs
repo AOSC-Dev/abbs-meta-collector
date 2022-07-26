@@ -17,18 +17,13 @@ pub fn scan_packages<P: AsRef<Path>>(abbs_path: P) -> Vec<(Package, HashMap<Stri
     let mut pkgs = Vec::new();
 
     for (spec_path, defines_path) in pkg_dirs {
-        let mut spec_context = HashMap::new();
-
-        let s = fs::read_to_string(&spec_path).unwrap();
-        parse(&s, &mut spec_context).ok();
-
         let (context, error) = parse_spec_and_defines(&spec_path, &defines_path);
         if let Some(s) = error {
             warn!("{}", s);
         }
 
         match Package::from(&context, &spec_path) {
-            Ok(pkg) => pkgs.push((pkg, spec_context)),
+            Ok(pkg) => pkgs.push((pkg, context)),
             Err(e) => warn!("{}", e),
         }
     }
