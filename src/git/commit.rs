@@ -54,14 +54,7 @@ impl Repository {
         let repo = git2::Repository::open(repo_path)?;
 
         let mut revwalk = repo.revwalk()?;
-        let branch = self
-            .repo
-            .find_branch(&self.branch, git2::BranchType::Local)?;
-        let branch = branch
-            .into_reference()
-            .target()
-            .with_context(|| format!("branch {} doesn't exist", self.branch))?;
-        revwalk.push(branch)?;
+        revwalk.push(self.get_branch_oid()?)?;
 
         let mut oids = vec![];
 

@@ -1,9 +1,7 @@
-use anyhow::{Ok, Result};
+use crate::Config;
+use anyhow::{Context, Ok, Result};
 use git2::{Blob, Commit, Error, Oid, Repository as Git2Repository};
 use std::path::{Path, PathBuf};
-
-use crate::Config;
-
 pub mod commit;
 
 pub struct Repository {
@@ -34,6 +32,18 @@ impl Repository {
 
     pub fn get_branch(&self) -> &str {
         &self.branch
+    }
+
+    pub fn get_branch_oid(&self) -> Result<Oid> {
+        let branch = self
+            .repo
+            .find_branch(&self.branch, git2::BranchType::Local)?;
+        let branch = branch
+            .into_reference()
+            .target()
+            .with_context(|| format!("branch {} doesn't exist", self.branch));
+
+        branch
     }
 
     pub fn find_commit(&self, oid: Oid) -> Result<Commit<'_>, Error> {

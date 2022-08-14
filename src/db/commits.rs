@@ -176,7 +176,7 @@ impl CommitDb {
         }
 
         history::ActiveModel {
-            commit_id: Set(repo.get_head_id()?.to_string()),
+            commit_id: Set(repo.get_branch_oid()?.to_string()),
             timestamp: Set(unix_timestamp_now()?),
             id: NotSet,
         }

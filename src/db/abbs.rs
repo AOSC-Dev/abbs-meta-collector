@@ -45,19 +45,19 @@ impl AbbsDb {
         exec(
             &conn,
             "CREATE VIEW IF NOT EXISTS v_packages AS 
-        SELECT p.name name, p.tree tree, 
-          t.category tree_category, 
-          pv.branch branch, p.category category, 
-          section, pkg_section, directory, description, version, 
-          ((CASE WHEN ifnull(epoch, '') = '' THEN '' 
-            ELSE epoch || ':' END) || version || 
-           (CASE WHEN ifnull(release, '') IN ('', '0') THEN '' 
-            ELSE '-' || release END)) full_version, 
-          pv.commit_time commit_time, pv.committer committer 
-        FROM packages p 
-        INNER JOIN trees t ON t.name=p.tree 
-        LEFT JOIN package_versions pv 
-          ON pv.package=p.name AND pv.branch=t.mainbranch",
+                SELECT p.name name, p.tree tree, 
+                  t.category tree_category, 
+                  pv.branch branch, p.category category, 
+                  section, pkg_section, directory, description, version, 
+                  ((CASE WHEN ifnull(epoch, '') = '' THEN '' 
+                    ELSE epoch || ':' END) || version || 
+                   (CASE WHEN ifnull(release, '') IN ('', '0') THEN '' 
+                    ELSE '-' || release END)) full_version, 
+                  pv.commit_time commit_time, pv.committer committer 
+                FROM packages p 
+                INNER JOIN trees t ON t.name=p.tree 
+                LEFT JOIN package_versions pv 
+                  ON pv.package=p.name AND pv.branch=t.mainbranch",
             [],
         )
         .await?;
@@ -273,8 +273,9 @@ impl AbbsDb {
             .await?;
 
         let pkg_name = &pkg.name;
+        type PkgDep = HashMap<String, Vec<(String, Option<String>, Option<String>)>>;
         async fn helper(
-            pkgdep: &HashMap<String, Vec<(String, Option<String>, Option<String>)>>,
+            pkgdep: &PkgDep,
             relationship: &str,
             pkg_name: &str,
             db: &impl ConnectionTrait,
