@@ -16,6 +16,7 @@ dependencies = [
  "abbs-meta-tree",
  "anyhow",
  "async-std",
+ "async-trait",
  "git2",
  "indexmap",
  "itertools",

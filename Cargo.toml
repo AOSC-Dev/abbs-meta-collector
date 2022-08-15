@@ -25,6 +25,7 @@ async-std = { version = "1.12.0", features = ["attributes"] }
 itertools = "0.10.3"
 indexmap = "1.9.1"
 thread_local = "1"
+async-trait = "0.1.57"
 
 [profile.release]
 lto = "fat"
