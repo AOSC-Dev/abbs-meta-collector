@@ -8,6 +8,7 @@ pub mod history;
 pub mod package_changes;
 pub mod package_dependencies;
 pub mod package_duplicate;
+pub mod package_errors;
 pub mod package_spec;
 pub mod package_versions;
 pub mod packages;

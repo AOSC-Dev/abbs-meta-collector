@@ -15,7 +15,10 @@ async fn main() {
 
     let commit_db = CommitDb::open(&config.commits_db_path).await.unwrap();
     let abbs_db = AbbsDb::open(&config).await.unwrap();
-    let pkgs = package::scan_packages(&config.abbs_path);
+
+    let (pkgs, errors) = package::scan_packages(&repo).unwrap();
+    info!("{errors:#?}");
+    info!("{pkgs:#?}");
 
     // find packages that were deleted in current abbs
     let old_pkgs = abbs_db.get_packages_name().await.unwrap();
@@ -39,11 +42,11 @@ async fn main() {
 
     for pkg_name in updated_pkgs {
         if let Some(v) = map.get(&pkg_name) {
-            for (pkg, spec) in v {
+            for (pkg, context) in v {
                 let changes = package::scan_package_changes(&pkg.name, &repo, &commit_db)
                     .await
                     .unwrap();
-                abbs_db.add_package(pkg, spec, &changes).await.unwrap();
+                abbs_db.add_package(pkg, context, changes).await.unwrap();
             }
         } else {
             debug!("desperated package: {pkg_name}");
