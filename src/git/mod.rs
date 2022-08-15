@@ -1,6 +1,6 @@
 use crate::Config;
 use anyhow::{Context, Ok, Result};
-use git2::{Blob, Commit, Error, Oid, Repository as Git2Repository};
+use git2::{Blob, Commit, Error, Oid, Repository as Git2Repository, TreeWalkResult};
 use std::path::{Path, PathBuf};
 pub mod commit;
 
@@ -56,5 +56,37 @@ impl Repository {
 
     pub fn get_git2repo(&self) -> &Git2Repository {
         &self.repo
+    }
+    pub fn walk_branch(&self) -> Result<Vec<PathBuf>> {
+        let branch = self.get_branch_oid()?;
+        let commit = self.repo.find_commit(branch)?;
+        let tree = commit.tree()?;
+
+        let mut dirs = vec![];
+        tree.walk(git2::TreeWalkMode::PostOrder, |dir, file| {
+            if let Some(filename) = file.name() {
+                let mut res = PathBuf::new();
+                res.push(Path::new(dir));
+                res.push(filename);
+                dirs.push(res);
+            }
+            TreeWalkResult::Ok
+        })
+        .ok();
+
+        Ok(dirs)
+    }
+
+    #[inline(always)]
+    pub fn read_file(&self, path: impl AsRef<Path>) -> Result<String> {
+        let branch = self.get_branch_oid()?;
+        let commit = self.repo.find_commit(branch)?;
+        let tree = commit.tree()?;
+        Ok(String::from_utf8(
+            self.repo
+                .find_blob(tree.get_path(path.as_ref())?.id())?
+                .content()
+                .to_vec(),
+        )?)
     }
 }
