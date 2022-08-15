@@ -5,13 +5,10 @@ in
   stdenv.mkDerivation {
     name = "rust";
     buildInputs = [ 
-      pkgconfig
-      openssl.dev
+      bintools
       rustup
+      gcc
       cargo-watch
-      zlib.dev
       nixfmt
       ];
-    OPENSSL_DEV = openssl.dev;
-    ZLIB_DEV=zlib.dev;
   }
