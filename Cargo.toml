@@ -8,7 +8,6 @@ edition = "2021"
 [dependencies]
 abbs-meta-apml = { git = "https://github.com/7rah/abbs-meta-rs" }
 abbs-meta-tree = { git = "https://github.com/7rah/abbs-meta-rs" }
-walkdir = "2.3.2"
 toml = "0.5.9"
 serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0.58"
