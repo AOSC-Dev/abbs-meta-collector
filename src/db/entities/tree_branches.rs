@@ -2,7 +2,7 @@
 
 use sea_orm::entity::prelude::*;
 
-#[derive(Clone, Debug,Eq, PartialEq, DeriveEntityModel)]
+#[derive(Clone, Debug, Eq, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "tree_branches")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
