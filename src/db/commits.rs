@@ -1,6 +1,6 @@
-use super::create_table;
 use super::entities::prelude::*;
 use super::entities::{self, commit, history};
+use super::CreateTable;
 use crate::git::commit::FileStatus;
 use crate::git::Repository;
 use crate::skip_error;
@@ -29,8 +29,8 @@ impl CommitDb {
     pub async fn open<P: AsRef<str>>(path: P) -> Result<Self> {
         let conn = Database::connect("sqlite://".to_string() + path.as_ref() + "?mode=rwc").await?;
 
-        create_table(&conn, commit::Entity).await?;
-        create_table(&conn, history::Entity).await?;
+        Commit.create_table(&conn).await?;
+        History.create_table(&conn).await?;
 
         Ok(Self { conn })
     }

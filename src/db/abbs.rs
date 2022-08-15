@@ -1,13 +1,13 @@
 use super::entities::{
-    fts_packages, package_changes, package_dependencies, package_duplicate, package_spec,
-    package_versions, packages, prelude::*, tree_branches, trees,
+    fts_packages, package_changes, package_dependencies, package_duplicate, package_errors,
+    package_spec, package_versions, packages, prelude::*, tree_branches, trees,
 };
-use super::{create_table, exec, replace, replace_many};
-use crate::db::insert_or_ignore;
-use crate::package::Change;
+use super::{exec, replace_many, InstertExt};
+use crate::db::CreateTable;
+use crate::package::{Change, Context};
 use crate::Config;
 use abbs_meta_tree::Package;
-use anyhow::{Ok, Result};
+use anyhow::{bail, Ok, Result};
 use sea_orm::{entity::*, query::*};
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection, EntityTrait, QueryFilter};
 use std::collections::{HashMap, HashSet};
@@ -17,6 +17,20 @@ pub struct AbbsDb {
     conn: DatabaseConnection,
     tree: String,
     branch: String,
+}
+
+#[derive(Debug)]
+pub enum ErrorType {
+    Parse,
+    Package,
+}
+
+#[derive(Debug)]
+pub struct PackageError {
+    pub package: String,
+    pub path: String,
+    pub message: String,
+    pub err_type: ErrorType,
 }
 
 impl AbbsDb {
@@ -30,16 +44,16 @@ impl AbbsDb {
             url,
             ..
         } = config;
-        let conn = Database::connect("sqlite://".to_string() + abbs_db_path + "?mode=rwc").await?;
+        let conn = Database::connect(format!("sqlite://{abbs_db_path}?mode=rwc")).await?;
 
-        create_table(&conn, PackageDependencies).await?;
-        create_table(&conn, PackageDuplicate).await?;
-        create_table(&conn, PackageSpec).await?;
-        create_table(&conn, PackageVersions).await?;
-        create_table(&conn, Packages).await?;
-        create_table(&conn, TreeBranches).await?;
-        create_table(&conn, Trees).await?;
-        create_table(&conn, PackageChanges).await?;
+        PackageDependencies.create_table(&conn).await?;
+        PackageDuplicate.create_table(&conn).await?;
+        PackageSpec.create_table(&conn).await?;
+        PackageVersions.create_table(&conn).await?;
+        Packages.create_table(&conn).await?;
+        TreeBranches.create_table(&conn).await?;
+        Trees.create_table(&conn).await?;
+        PackageChanges.create_table(&conn).await?;
 
         exec(&conn, "CREATE VIRTUAL TABLE IF NOT EXISTS fts_packages USING fts5(name, description, tokenize = porter)", []).await?;
         exec(
@@ -62,29 +76,33 @@ impl AbbsDb {
         )
         .await?;
 
-        replace(
-            trees::Model {
-                tid: *priority,
-                name: name.into(),
-                category: category.into(),
-                url: url.into(),
-                mainbranch: branch.into(),
-            }
-            .into_active_model(),
-        )
-        .exec(&conn)
+        trees::Model {
+            tid: *priority,
+            name: name.into(),
+            category: category.into(),
+            url: url.into(),
+            mainbranch: branch.into(),
+        }
+        .replace(&conn)
         .await?;
 
-        replace(
-            tree_branches::Model {
-                name: name.to_string() + "/" + branch,
-                tree: name.into(),
-                branch: branch.into(),
-                priority: Some(*priority),
-            }
-            .into_active_model(),
-        )
-        .exec(&conn)
+        trees::Model {
+            tid: *priority,
+            name: name.into(),
+            category: category.into(),
+            url: url.into(),
+            mainbranch: branch.into(),
+        }
+        .replace(&conn)
+        .await?;
+
+        tree_branches::Model {
+            name: format!("{name}/{branch}"),
+            tree: name.into(),
+            branch: branch.into(),
+            priority: Some(*priority),
+        }
+        .replace(&conn)
         .await?;
 
         Ok(Self {
@@ -94,19 +112,19 @@ impl AbbsDb {
         })
     }
 
+    pub async fn add_package_errors(&self, _errors: Vec<PackageError>) {}
+
     pub async fn add_package(
         &self,
         pkg: &Package,
-        pkg_spec: &HashMap<String, String>,
-        pkg_changes: &Vec<Change>,
+        context: &Context,
+        pkg_changes: Vec<Change>,
     ) -> Result<()> {
         let txn = self.conn.begin().await?;
         let db = &txn;
 
         if pkg_changes.is_empty() {
-            return Err(anyhow::anyhow!(
-                "cannot find changes of package, please update commit database"
-            ));
+            bail!("cannot find changes of package, please update commit database")
         }
         let existing = Packages::find_by_id(pkg.name.clone()).one(db).await?;
 
@@ -117,30 +135,24 @@ impl AbbsDb {
                 tree: &str,
                 db: &impl ConnectionTrait,
             ) -> Result<()> {
-                insert_or_ignore(
-                    package_duplicate::Model {
-                        package: pkg.name.clone(),
-                        tree: tree.to_string(),
-                        category: pkg.category.clone(),
-                        section: pkg.section.clone(),
-                        directory: pkg.directory.clone(),
-                    }
-                    .into_active_model(),
-                )
-                .exec(db)
+                package_duplicate::Model {
+                    package: pkg.name.clone(),
+                    tree: tree.to_string(),
+                    category: pkg.category.clone(),
+                    section: pkg.section.clone(),
+                    directory: pkg.directory.clone(),
+                }
+                .insert_or_ignore(db)
                 .await?;
 
-                insert_or_ignore(
-                    package_duplicate::Model {
-                        package: pkg.name.clone(),
-                        tree: existing.tree.clone(),
-                        category: existing.category.clone(),
-                        section: existing.section.clone(),
-                        directory: existing.directory.clone(),
-                    }
-                    .into_active_model(),
-                )
-                .exec(db)
+                package_duplicate::Model {
+                    package: pkg.name.clone(),
+                    tree: existing.tree.clone(),
+                    category: existing.category.clone(),
+                    section: existing.section.clone(),
+                    directory: existing.directory.clone(),
+                }
+                .insert_or_ignore(db)
                 .await?;
                 Ok(())
             }
@@ -180,19 +192,16 @@ impl AbbsDb {
             }
         }
 
-        replace(
-            packages::Model {
-                name: pkg.name.clone(),
-                tree: self.tree.clone(),
-                category: pkg.category.clone(),
-                section: pkg.section.clone(),
-                pkg_section: pkg.pkg_section.clone(),
-                directory: pkg.directory.clone(),
-                description: pkg.description.clone(),
-            }
-            .into_active_model(),
-        )
-        .exec(db)
+        packages::Model {
+            name: pkg.name.clone(),
+            tree: self.tree.clone(),
+            category: pkg.category.clone(),
+            section: pkg.section.clone(),
+            pkg_section: pkg.pkg_section.clone(),
+            directory: pkg.directory.clone(),
+            description: pkg.description.clone(),
+        }
+        .replace(&txn)
         .await?;
 
         let res = FtsPackages::find()
@@ -203,53 +212,50 @@ impl AbbsDb {
         let model = fts_packages::Model {
             name: pkg.name.clone(),
             description: pkg.description.clone(),
-        }
-        .into_active_model();
+        };
 
         if let Some(res) = res {
             if res.description != pkg.description {
                 res.delete(db).await?;
-                replace(model).exec(db).await?;
+                model.replace(db).await?;
             }
         } else {
-            replace(model).exec(db).await?;
+            model.replace(db).await?;
         }
 
-        let changes_iter = pkg_changes.iter().map(|change| {
+        let first = pkg_changes[0].clone();
+        let changes_iter = pkg_changes.into_iter().map(|change| {
             package_changes::Model {
-                package: change.pkg_name.clone(),
-                githash: change.githash.clone(),
-                version: change.version.clone(),
-                branch: change.branch.clone(),
-                urgency: change.urgency.clone(),
-                message: change.message.clone(),
-                maintainer_name: change.maintainer_name.clone(),
-                maintainer_email: change.maintainer_email.clone(),
+                package: change.pkg_name,
+                githash: change.githash,
+                version: change.version,
+                branch: change.branch,
+                urgency: change.urgency,
+                message: change.message,
+                maintainer_name: change.maintainer_name,
+                maintainer_email: change.maintainer_email,
                 timestamp: change.timestamp,
             }
             .into_active_model()
         });
         replace_many(changes_iter).exec(db).await?;
 
-        replace(
-            package_versions::Model {
-                package: pkg.name.clone(),
-                branch: self.branch.clone(),
-                architecture: "".to_string(),
-                version: pkg.version.clone(),
-                release: Some(pkg.release).filter(|x| *x != 0).map(|x| x.to_string()),
-                epoch: Some(pkg.epoch).filter(|x| *x != 0).map(|x| x.to_string()),
-                commit_time: pkg_changes[0].timestamp,
-                committer: format!(
-                    "{name} <{email}>",
-                    name = pkg_changes[0].maintainer_name,
-                    email = pkg_changes[0].maintainer_email
-                ),
-                githash: pkg_changes[0].githash.clone(),
-            }
-            .into_active_model(),
-        )
-        .exec(db)
+        package_versions::Model {
+            package: pkg.name.clone(),
+            branch: self.branch.clone(),
+            architecture: "".to_string(),
+            version: pkg.version.clone(),
+            release: Some(pkg.release).filter(|x| *x != 0).map(|x| x.to_string()),
+            epoch: Some(pkg.epoch).filter(|x| *x != 0).map(|x| x.to_string()),
+            commit_time: first.timestamp,
+            committer: format!(
+                "{name} <{email}>",
+                name = first.maintainer_name,
+                email = first.maintainer_email
+            ),
+            githash: first.githash.clone(),
+        }
+        .replace(db)
         .await?;
 
         PackageSpec::delete_many()
@@ -257,7 +263,7 @@ impl AbbsDb {
             .exec(db)
             .await?;
 
-        let iter = pkg_spec.iter().map(|(k, v)| {
+        let iter = context.iter().map(|(k, v)| {
             package_spec::Model {
                 package: pkg.name.clone(),
                 key: k.clone(),
@@ -287,18 +293,15 @@ impl AbbsDb {
                     architecture
                 };
                 for (dependency, relop, version) in v.clone() {
-                    replace(
-                        package_dependencies::Model {
-                            package: pkg_name.to_string(),
-                            dependency,
-                            relop,
-                            version,
-                            architecture: architecture.to_string(),
-                            relationship: relationship.to_string(),
-                        }
-                        .into_active_model(),
-                    )
-                    .exec(db)
+                    package_dependencies::Model {
+                        package: pkg_name.to_string(),
+                        dependency,
+                        relop,
+                        version,
+                        architecture: architecture.to_string(),
+                        relationship: relationship.to_string(),
+                    }
+                    .replace(db)
                     .await?;
                 }
             }
@@ -354,6 +357,11 @@ impl AbbsDb {
 
         Delete::many(FtsPackages)
             .filter(fts_packages::Column::Name.eq(pkg_name.to_string()))
+            .exec(db)
+            .await?;
+
+        Delete::many(PackageErrors)
+            .filter(package_errors::Column::Package.eq(pkg_name.to_string()))
             .exec(db)
             .await?;
 
