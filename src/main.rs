@@ -3,32 +3,34 @@ use abbs_meta::{
     git::Repository,
     package, Config,
 };
+use anyhow::{Context, Result};
 use std::collections::HashMap;
 use tracing::{debug, info};
 
 #[async_std::main]
-async fn main() {
+async fn main() -> Result<()> {
     init_log();
 
-    let config = Config::from_file("config.toml").unwrap();
-    let repo = Repository::try_from(&config).unwrap();
+    let config = Config::from_file("config.toml")?;
+    let repo = Repository::try_from(&config)?;
 
-    let commit_db = CommitDb::open(&config.commits_db_path).await.unwrap();
-    let abbs_db = AbbsDb::open(&config).await.unwrap();
+    let commit_db = CommitDb::open(&config.commits_db_path).await?;
+    let abbs_db = AbbsDb::open(&config).await?;
 
-    let (pkgs, errors) = package::scan_packages(&repo).unwrap();
-    info!("{errors:#?}");
-    info!("{pkgs:#?}");
+    let (pkgs, errors) =
+        package::scan_packages(&repo).with_context(|| "failed to scan packages")?;
+    abbs_db.delete_package_errors().await?;
+    abbs_db.add_package_errors(errors).await?;
 
     // find packages that were deleted in current abbs
-    let old_pkgs = abbs_db.get_packages_name().await.unwrap();
+    let old_pkgs = abbs_db.get_packages_name().await?;
     let current_pkgs = pkgs.iter().map(|(pkg, _)| pkg.name.clone()).collect();
     let deleted_packages = old_pkgs.difference(&current_pkgs);
 
     info!("deleted packages: {:?}", deleted_packages);
-    abbs_db.delete_package_many(deleted_packages).await.unwrap();
+    abbs_db.delete_package_many(deleted_packages).await?;
 
-    let updated_pkgs = commit_db.update(&repo).await.unwrap();
+    let updated_pkgs = commit_db.update(&repo).await?;
     info!("updated packages: {:?}", updated_pkgs);
 
     let mut map: HashMap<_, Vec<_>> = HashMap::new();
@@ -43,15 +45,15 @@ async fn main() {
     for pkg_name in updated_pkgs {
         if let Some(v) = map.get(&pkg_name) {
             for (pkg, context) in v {
-                let changes = package::scan_package_changes(&pkg.name, &repo, &commit_db)
-                    .await
-                    .unwrap();
-                abbs_db.add_package(pkg, context, changes).await.unwrap();
+                let changes = package::scan_package_changes(&pkg.name, &repo, &commit_db).await?;
+                abbs_db.add_package(pkg, context, changes).await?;
             }
         } else {
             debug!("desperated package: {pkg_name}");
         }
     }
+
+    Ok(())
 }
 
 fn init_log() {

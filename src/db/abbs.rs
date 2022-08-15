@@ -25,6 +25,16 @@ pub enum ErrorType {
     Package,
 }
 
+impl ToString for ErrorType {
+    fn to_string(&self) -> String {
+        match self {
+            Self::Parse => "parse",
+            Self::Package => "package",
+        }
+        .to_string()
+    }
+}
+
 #[derive(Debug)]
 pub struct PackageError {
     pub package: String,
@@ -54,6 +64,7 @@ impl AbbsDb {
         TreeBranches.create_table(&conn).await?;
         Trees.create_table(&conn).await?;
         PackageChanges.create_table(&conn).await?;
+        PackageErrors.create_table(&conn).await?;
 
         exec(&conn, "CREATE VIRTUAL TABLE IF NOT EXISTS fts_packages USING fts5(name, description, tokenize = porter)", []).await?;
         exec(
@@ -112,7 +123,28 @@ impl AbbsDb {
         })
     }
 
-    pub async fn add_package_errors(&self, _errors: Vec<PackageError>) {}
+    pub async fn delete_package_errors(&self) -> Result<()> {
+        Delete::many(PackageErrors)
+            .filter(package_errors::Column::Tree.eq(self.tree.to_string()))
+            .filter(package_errors::Column::Branch.eq(self.branch.to_string()))
+            .exec(&self.conn)
+            .await?;
+
+        Ok(())
+    }
+    pub async fn add_package_errors(&self, errors: Vec<PackageError>) -> Result<()> {
+        let iter = errors.into_iter().map(|e| package_errors::ActiveModel {
+            package: Set(e.package),
+            err_type: Set(e.err_type.to_string()),
+            message: Set(e.message),
+            path: Set(e.path),
+            tree: Set(self.tree.clone()),
+            branch: Set(self.branch.clone()),
+            id: NotSet,
+        });
+        replace_many(iter).exec(&self.conn).await?;
+        Ok(())
+    }
 
     pub async fn add_package(
         &self,
@@ -154,6 +186,7 @@ impl AbbsDb {
                 }
                 .insert_or_ignore(db)
                 .await?;
+
                 Ok(())
             }
 
@@ -362,6 +395,8 @@ impl AbbsDb {
 
         Delete::many(PackageErrors)
             .filter(package_errors::Column::Package.eq(pkg_name.to_string()))
+            .filter(package_errors::Column::Tree.eq(self.tree.to_string()))
+            .filter(package_errors::Column::Branch.eq(self.branch.to_string()))
             .exec(db)
             .await?;
 
