@@ -30,4 +30,3 @@ async-trait = "0.1.57"
 lto = "fat"
 codegen-units = 1
 panic = "abort"
-strip = true
