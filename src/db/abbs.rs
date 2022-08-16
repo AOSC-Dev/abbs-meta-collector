@@ -14,7 +14,6 @@ use itertools::Itertools;
 use sea_orm::{entity::*, query::*};
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection, EntityTrait, QueryFilter};
 use std::collections::{HashMap, HashSet};
-use tracing::info;
 use tracing::log::warn;
 
 pub struct AbbsDb {
