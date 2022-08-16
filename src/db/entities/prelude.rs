@@ -8,6 +8,7 @@ pub use super::package_dependencies::Entity as PackageDependencies;
 pub use super::package_duplicate::Entity as PackageDuplicate;
 pub use super::package_errors::Entity as PackageErrors;
 pub use super::package_spec::Entity as PackageSpec;
+pub use super::package_testing::Entity as PackageTesting;
 pub use super::package_versions::Entity as PackageVersions;
 pub use super::packages::Entity as Packages;
 pub use super::tree_branches::Entity as TreeBranches;

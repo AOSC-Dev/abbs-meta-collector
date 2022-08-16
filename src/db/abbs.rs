@@ -1,16 +1,20 @@
+use super::commits::CommitDb;
 use super::entities::{
     fts_packages, package_changes, package_dependencies, package_duplicate, package_errors,
-    package_spec, package_versions, packages, prelude::*, tree_branches, trees,
+    package_spec, package_testing, package_versions, packages, prelude::*, tree_branches, trees,
 };
 use super::{exec, replace_many, InstertExt};
 use crate::db::CreateTable;
+use crate::git::Repository;
 use crate::package::{Change, Context};
 use crate::Config;
 use abbs_meta_tree::Package;
-use anyhow::{bail, Ok, Result};
+use anyhow::{bail, Result};
+use itertools::Itertools;
 use sea_orm::{entity::*, query::*};
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection, EntityTrait, QueryFilter};
 use std::collections::{HashMap, HashSet};
+use tracing::info;
 use tracing::log::warn;
 
 pub struct AbbsDb {
@@ -65,6 +69,7 @@ impl AbbsDb {
         Trees.create_table(&conn).await?;
         PackageChanges.create_table(&conn).await?;
         PackageErrors.create_table(&conn).await?;
+        PackageTesting.create_table(&conn).await?;
 
         exec(&conn, "CREATE VIRTUAL TABLE IF NOT EXISTS fts_packages USING fts5(name, description, tokenize = porter)", []).await?;
         exec(
@@ -403,9 +408,43 @@ impl AbbsDb {
         Ok(())
     }
 
-    pub async fn delete_package_many(
+    pub async fn update_package_testing(
         &self,
-        pkg_names: impl Iterator<Item = impl AsRef<str>>,
+        commit_db: &CommitDb,
+        repo: &Repository,
+        exculde: &HashSet<String>,
+    ) -> Result<()> {
+        info!("help");
+        let result = commit_db.update_package_testing(repo, exculde).await?;
+
+        for (branch, info) in result {
+            if info.is_empty() {
+                continue;
+            }
+            let iter = info.iter()
+            .group_by(|info| info.pkg_name.clone());
+
+            let models = 
+                iter.into_iter()
+                .filter_map(|(_pkg, info)| {
+                    info.max_by(|a, b| a.time.cmp(&b.time))
+                        .map(|info| package_testing::Model {
+                            package: info.pkg_name.clone(),
+                            version: info.pkg_version.clone(),
+                            defines_path: info.defines_path.clone(),
+                            branch: branch.clone(),
+                            tree: repo.tree.clone(),
+                        })
+                });
+            replace_many(models).exec(&self.conn).await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn delete_packages(
+        &self,
+        pkg_names: impl IntoIterator<Item = impl AsRef<str>>,
     ) -> Result<()> {
         for pkg_name in pkg_names {
             self.delete_package(pkg_name.as_ref()).await?;

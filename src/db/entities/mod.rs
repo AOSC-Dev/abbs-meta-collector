@@ -10,6 +10,7 @@ pub mod package_dependencies;
 pub mod package_duplicate;
 pub mod package_errors;
 pub mod package_spec;
+pub mod package_testing;
 pub mod package_versions;
 pub mod packages;
 pub mod tree_branches;

@@ -1,5 +1,5 @@
 use super::Repository;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use git2::{Delta, Oid, Time};
 use rayon::prelude::*;
 use std::path::PathBuf;
@@ -49,12 +49,9 @@ impl ToString for FileStatus {
 }
 
 impl Repository {
-    pub fn scan_commits(&self, to: Option<Oid>) -> Result<Vec<(Oid, Time, PathBuf, FileStatus)>> {
-        let repo_path = &self.repo_path.clone();
-        let repo = git2::Repository::open(repo_path)?;
-
-        let mut revwalk = repo.revwalk()?;
-        revwalk.push(self.get_branch_oid()?)?;
+    pub fn get_commits_by_range(&self, from: Oid, to: Option<Oid>) -> Result<Vec<Oid>> {
+        let mut revwalk = self.repo.revwalk()?;
+        revwalk.push(from)?;
 
         let mut oids = vec![];
 
@@ -67,16 +64,21 @@ impl Repository {
             }
         }
 
-        if oids.is_empty() {
-            return Ok(vec![]);
-        }
+        Ok(oids)
+    }
+
+    pub fn scan_commits(
+        &self,
+        oids: impl IntoParallelIterator<Item = Oid>,
+    ) -> Result<Vec<(Oid, Time, PathBuf, FileStatus)>> {
+        let repo_path = &self.repo_path.clone();
 
         let repo: ThreadLocal<git2::Repository> = ThreadLocal::new();
         let result = oids
-            .par_iter()
+            .into_par_iter()
             .filter_map(|oid| {
                 let repo = repo.get_or(|| git2::Repository::open(repo_path).unwrap());
-                let commit = repo.find_commit(*oid).ok()?;
+                let commit = repo.find_commit(oid).ok()?;
 
                 let parents: Vec<_> = commit.parents().collect();
 
@@ -111,13 +113,5 @@ impl Repository {
             .collect();
 
         Ok(result)
-    }
-
-    pub fn get_head_id(&self) -> Result<Oid> {
-        let head = self.repo.head()?;
-        let oid = head
-            .target()
-            .with_context(|| "failed to get head".to_string())?;
-        Ok(oid)
     }
 }

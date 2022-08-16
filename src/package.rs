@@ -61,7 +61,10 @@ pub async fn scan_package_changes(
     repo: &Repository,
     commit_db: &CommitDb,
 ) -> Result<Vec<Change>> {
-    let changes = commit_db.get_package_commits(pkg_name).await.unwrap();
+    let changes = commit_db
+        .get_commits_by_packages(&repo.tree, &repo.branch, pkg_name)
+        .await
+        .unwrap();
 
     let changes = changes
         .into_iter()

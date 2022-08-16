@@ -1,16 +1,16 @@
 use super::entities::prelude::*;
-use super::entities::{self, commit, history};
-use super::CreateTable;
+use super::entities::{commit, history};
+use super::{replace_many, CreateTable};
 use crate::git::commit::FileStatus;
 use crate::git::Repository;
 use crate::skip_error;
 use crate::skip_none;
 use abbs_meta_apml::parse;
 use anyhow::Result;
-use commit::Column::*;
-use entities::history::Column::*;
 use git2::{Oid, TreeWalkResult};
+use indexmap::IndexSet;
 use itertools::Itertools;
+use rayon::prelude::IntoParallelIterator;
 use sea_orm::sea_query::Query;
 use sea_orm::ActiveValue::NotSet;
 use sea_orm::{ActiveModelTrait, Database, QueryOrder, TransactionTrait};
@@ -19,15 +19,28 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+
 use FileStatus::*;
 
+#[derive(Debug)]
 pub struct CommitDb {
     conn: DatabaseConnection,
 }
 
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub struct CommitInfo {
+    pub commit_id: String,
+    pub time: i64,
+    pub pkg_name: String,
+    pub pkg_version: String,
+    pub defines_path: String,
+    pub spec_path: String,
+}
+
 impl CommitDb {
     pub async fn open<P: AsRef<str>>(path: P) -> Result<Self> {
-        let conn = Database::connect("sqlite://".to_string() + path.as_ref() + "?mode=rwc").await?;
+        let path = path.as_ref();
+        let conn = Database::connect(format!("sqlite://{path}?mode=rwc")).await?;
 
         Commit.create_table(&conn).await?;
         History.create_table(&conn).await?;
@@ -35,25 +48,14 @@ impl CommitDb {
         Ok(Self { conn })
     }
 
-    pub async fn update(&self, repo: &Repository) -> Result<HashSet<String>> {
-        let txn = self.conn.begin().await?;
-        let db = &txn;
-
-        // SELECT commit_id, history FROM history WHERE timestamp = (SELECT MAX(timestamp) FROM history)
-        let last_commit = History::find()
-            .filter(
-                Timestamp.in_subquery(
-                    Query::select()
-                        .expr(Timestamp.max())
-                        .from(History)
-                        .to_owned(),
-                ),
-            )
-            .one(db)
-            .await?;
-
-        let to: Option<Oid> = last_commit.and_then(|x| Oid::from_str(&x.commit_id).ok());
-        let result = repo.scan_commits(to)?;
+    pub async fn add_commits(
+        &self,
+        repo: &Repository,
+        branch: impl AsRef<str>,
+        commits: impl IntoParallelIterator<Item = Oid>,
+    ) -> Result<HashSet<CommitInfo>> {
+        let result = repo.scan_commits(commits)?;
+        let db = self.conn.begin().await?;
 
         let mut commit_info = HashSet::new();
         for (commit_id, time, file_path, file_status) in result {
@@ -94,14 +96,14 @@ impl CommitDb {
                 let spec_path = spec_path.to_str()?.to_string();
                 let defines_path = defines_path.to_str()?.to_string();
 
-                commit_info.insert((
-                    commit_id.to_string(),
-                    time.seconds(),
+                commit_info.insert(CommitInfo {
+                    commit_id: commit_id.to_string(),
+                    time: time.seconds(),
                     pkg_name,
                     pkg_version,
                     defines_path,
                     spec_path,
-                ));
+                });
                 Some(())
             };
 
@@ -150,16 +152,21 @@ impl CommitDb {
             };
         }
 
-        let updated_packages = commit_info
-            .iter()
-            .map(|(_, _, pkg_name, _, _, _)| pkg_name.clone())
-            .collect();
-
         let iters = commit_info
+            .clone()
             .into_iter()
             .map(
-                |(commit_id, time, pkg_name, pkg_version, defines_path, spec_path)| {
+                |CommitInfo {
+                     commit_id,
+                     time,
+                     pkg_name,
+                     pkg_version,
+                     defines_path,
+                     spec_path,
+                 }| {
                     commit::ActiveModel {
+                        tree: Set(repo.tree.clone()),
+                        branch: Set(branch.as_ref().to_string()),
                         commit_id: Set(commit_id),
                         commit_time: Set(time),
                         pkg_name: Set(pkg_name),
@@ -170,32 +177,159 @@ impl CommitDb {
                     }
                 },
             )
-            .chunks(4096);
+            .chunks(2048);
         for iter in iters.into_iter() {
-            Commit::insert_many(iter).exec(db).await?;
+            replace_many(iter).exec(&db).await?;
         }
 
+        db.commit().await?;
+        Ok(commit_info)
+    }
+
+    pub async fn update_package_testing(
+        &self,
+        repo: &Repository,
+        exculde: &HashSet<String>,
+    ) -> Result<HashMap<String, HashSet<CommitInfo>>> {
+        use anyhow::Context;
+        use git2::Branch;
+
+        let branches = repo
+            .get_git2repo()
+            .branches(None)?
+            .filter_map(|x| x.ok())
+            .map(|x| x.0)
+            .collect_vec();
+
+        let get_head_oid = |branch: &Branch| {
+            branch
+                .get()
+                .target()
+                .with_context(|| format!("failed to find commit of branch {:?}", branch.name()))
+        };
+
+        let stable = branches
+            .iter()
+            .find(|b| Ok(Some("stable")) == b.name())
+            .with_context(|| "there is no stable branch")?;
+        let stable_commits: HashSet<_> = repo
+            .get_commits_by_range(get_head_oid(stable)?, None)?
+            .into_iter()
+            .collect();
+
+        let testing_branches = branches
+            .into_iter()
+            .filter_map(|b| {
+                if let Ok(Some(name)) = b.name() {
+                    if (name == "stable")
+                        | (name == "origin/HEAD")
+                        | name.starts_with("retro")
+                        | name.starts_with("origin/retro")
+                        | exculde.contains(name)
+                    {
+                        return None;
+                    }
+                }
+                Some(b)
+            })
+            .collect_vec();
+
+        let mut result = HashMap::new();
+
+        for testing in testing_branches {
+            let from = get_head_oid(&testing)?;
+            let branch = testing
+                .name()?
+                .with_context(|| "failed to parse branch name")?;
+            let to = self
+                .get_latest_history(&repo.tree, branch)
+                .await?
+                .and_then(|m| Oid::from_str(&m.commit_id).ok());
+
+            let testing_commits: HashSet<_> =
+                repo.get_commits_by_range(from, to)?.into_iter().collect();
+
+            let ahead = &testing_commits - &stable_commits;
+            let info = self.add_commits(repo, branch, ahead).await?;
+            result.insert(branch.to_string(), info);
+
+            self.insert_history(&repo.tree, branch, from).await?;
+        }
+
+        Ok(result)
+    }
+
+    async fn get_latest_history(
+        &self,
+        tree: impl AsRef<str>,
+        branch: impl AsRef<str>,
+    ) -> Result<Option<history::Model>> {
+        Ok(History::find()
+            .filter(history::Column::Tree.eq(tree.as_ref().to_string()))
+            .filter(history::Column::Branch.eq(branch.as_ref().to_string()))
+            .filter(
+                history::Column::Timestamp.in_subquery(
+                    Query::select()
+                        .from(history::Entity)
+                        .expr(history::Column::Timestamp.max())
+                        .and_where(history::Column::Tree.eq(tree.as_ref().to_string()))
+                        .and_where(history::Column::Branch.eq(branch.as_ref().to_string()))
+                        .to_owned(),
+                ),
+            )
+            .one(&self.conn)
+            .await?)
+    }
+
+    async fn insert_history(
+        &self,
+        tree: impl AsRef<str>,
+        branch: impl AsRef<str>,
+        commit: Oid,
+    ) -> Result<()> {
         history::ActiveModel {
-            commit_id: Set(repo.get_branch_oid()?.to_string()),
+            tree: Set(tree.as_ref().to_string()),
+            branch: Set(branch.as_ref().to_string()),
+            commit_id: Set(commit.to_string()),
             timestamp: Set(unix_timestamp_now()?),
             id: NotSet,
         }
-        .save(&txn)
+        .save(&self.conn)
         .await?;
 
-        txn.commit().await?;
+        Ok(())
+    }
 
-        Ok(updated_packages)
+    /// return updated packages' name
+    /// branch is decided by repo.branch
+    pub async fn update_repo_branch(&self, repo: &Repository) -> Result<HashSet<CommitInfo>> {
+        // SELECT commit_id, history FROM history WHERE timestamp = (SELECT MAX(timestamp) FROM history)
+        let to = self
+            .get_latest_history(&repo.tree, &repo.branch)
+            .await?
+            .and_then(|x| Oid::from_str(&x.commit_id).ok());
+
+        let from = repo.get_branch_oid()?;
+        let commits = repo.get_commits_by_range(from, to)?;
+        let result = self.add_commits(repo, repo.branch.clone(), commits).await?;
+
+        self.insert_history(&repo.tree, &repo.branch, from).await?;
+
+        Ok(result)
     }
 
     /// commits are sorted by timestamp in descending order, return Vec<(commit_id,pkg_version,spec_path,defines_path)>
-    pub async fn get_package_commits(
+    pub async fn get_commits_by_packages(
         &self,
-        pkg_name: &str,
+        tree: impl AsRef<str>,
+        branch: impl AsRef<str>,
+        pkg_name: impl AsRef<str>,
     ) -> Result<Vec<(Oid, String, String, String)>> {
         let v = Commit::find()
-            .order_by_desc(CommitTime)
-            .filter(PkgName.eq(pkg_name))
+            .order_by_desc(commit::Column::CommitTime)
+            .filter(commit::Column::PkgName.eq(pkg_name.as_ref().to_string()))
+            .filter(commit::Column::Tree.eq(tree.as_ref().to_string()))
+            .filter(commit::Column::Branch.eq(branch.as_ref().to_string()))
             .all(&self.conn)
             .await?;
 
@@ -213,6 +347,21 @@ impl CommitDb {
             .into_iter()
             .map(|(k, v)| (k, v.0, v.1, v.2))
             .collect_vec())
+    }
+
+    pub async fn get_commits_by_tree_and_branch(
+        &self,
+        tree: impl AsRef<str>,
+        branch: impl AsRef<str>,
+    ) -> Result<IndexSet<Oid>> {
+        Ok(Commit::find()
+            .filter(commit::Column::Tree.eq(tree.as_ref().to_string()))
+            .filter(commit::Column::Branch.eq(branch.as_ref().to_string()))
+            .all(&self.conn)
+            .await?
+            .into_iter()
+            .filter_map(|m| Oid::from_str(&m.commit_id).ok())
+            .collect())
     }
 }
 

@@ -7,6 +7,8 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     pub commit_id: String,
     timestamp: i64,
+    pub tree: String,
+    pub branch: String,
     #[sea_orm(primary_key, auto_increment = true)]
     pub id: u32,
 }
