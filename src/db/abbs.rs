@@ -414,7 +414,6 @@ impl AbbsDb {
         repo: &Repository,
         exculde: &HashSet<String>,
     ) -> Result<()> {
-        info!("help");
         let result = commit_db.update_package_testing(repo, exculde).await?;
 
         for (branch, info) in result {
