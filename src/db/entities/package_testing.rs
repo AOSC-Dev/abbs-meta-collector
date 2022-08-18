@@ -7,14 +7,14 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub package: String,
-    #[sea_orm(primary_key)]
     pub version: String,
-    #[sea_orm(primary_key)]
     pub defines_path: String,
-    #[sea_orm(primary_key)]
-    pub branch: String,
+    pub spec_path: String,
     #[sea_orm(primary_key)]
     pub tree: String,
+    #[sea_orm(primary_key)]
+    pub branch: String,
+    pub commit: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter)]

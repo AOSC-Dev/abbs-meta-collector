@@ -212,7 +212,7 @@ impl CommitDb {
             .iter()
             .find(|b| Ok(Some("stable")) == b.name())
             .with_context(|| "there is no stable branch")?;
-        let stable_commits: HashSet<_> = repo
+        let stable_commits = repo
             .get_commits_by_range(get_head_oid(stable)?, None)?
             .into_iter()
             .collect();
@@ -223,6 +223,7 @@ impl CommitDb {
                 if let Ok(Some(name)) = b.name() {
                     if (name == "stable")
                         | (name == "origin/HEAD")
+                        | (name == "origin/stable")
                         | name.starts_with("retro")
                         | name.starts_with("origin/retro")
                         | exculde.contains(name)
@@ -251,9 +252,12 @@ impl CommitDb {
 
             let ahead = &testing_commits - &stable_commits;
             let info = self.add_commits(repo, branch, ahead).await?;
-            result.insert(branch.to_string(), info);
 
             self.insert_history(&repo.tree, branch, from).await?;
+
+            if !info.is_empty() {
+                result.insert(branch.to_string(), info);
+            }
         }
 
         Ok(result)

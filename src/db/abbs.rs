@@ -7,13 +7,17 @@ use super::{exec, replace_many, InstertExt};
 use crate::db::CreateTable;
 use crate::git::Repository;
 use crate::package::{Change, Context};
+use crate::skip_error;
+use crate::skip_none;
 use crate::Config;
 use abbs_meta_tree::Package;
 use anyhow::{bail, Result};
+use git2::Oid;
 use itertools::Itertools;
 use sea_orm::{entity::*, query::*};
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection, EntityTrait, QueryFilter};
 use std::collections::{HashMap, HashSet};
+use tracing::info;
 use tracing::log::warn;
 
 pub struct AbbsDb {
@@ -415,27 +419,79 @@ impl AbbsDb {
     ) -> Result<()> {
         let result = commit_db.update_package_testing(repo, exculde).await?;
 
-        for (branch, info) in result {
-            if info.is_empty() {
-                continue;
-            }
-            let iter = info.iter()
-            .group_by(|info| info.pkg_name.clone());
+        let main = scan_branch(repo, repo.get_branch(), Some(1000))?;
+        let mut outdated_branches = vec![];
 
-            let models = 
-                iter.into_iter()
-                .filter_map(|(_pkg, info)| {
-                    info.max_by(|a, b| a.time.cmp(&b.time))
-                        .map(|info| package_testing::Model {
-                            package: info.pkg_name.clone(),
-                            version: info.pkg_version.clone(),
-                            defines_path: info.defines_path.clone(),
-                            branch: branch.clone(),
-                            tree: repo.tree.clone(),
-                        })
-                });
-            replace_many(models).exec(&self.conn).await?;
+        for (branch, info) in result {
+            info!("scan testing branch {branch}");
+            let testing = scan_branch(repo, &branch, None)?;
+            let last = testing
+                .iter()
+                .filter_map(|(oid, order)| {
+                    main.get(oid)
+                        .map(|main_branch_order| (main_branch_order, order))
+                })
+                .max_by_key(|x| x.0);
+            let (_, last) = if let Some(last) = last {
+                last
+            } else {
+                outdated_branches.push(branch.to_string());
+                continue;
+            };
+
+            for info in info {
+                let new_order =
+                    skip_none!(testing.get(&skip_error!(Oid::from_str(&info.commit_id))));
+
+                let db_order = PackageTesting::find()
+                    .filter(package_testing::Column::Package.eq(info.pkg_name.clone()))
+                    .filter(package_testing::Column::Tree.eq(repo.tree.clone()))
+                    .filter(package_testing::Column::Branch.eq(branch.clone()))
+                    .one(&self.conn)
+                    .await?
+                    .and_then(|current| testing.get(&Oid::from_str(&current.commit).ok()?))
+                    .unwrap_or(&10_0000);
+
+                if (new_order < db_order) & (new_order <= last) {
+                    package_testing::Model {
+                        spec_path: info.spec_path,
+                        package: info.pkg_name,
+                        version: info.pkg_version,
+                        defines_path: info.defines_path,
+                        branch: branch.clone(),
+                        tree: repo.tree.clone(),
+                        commit: info.commit_id,
+                    }
+                    .replace(&self.conn)
+                    .await?;
+                } else if (new_order > last) & (db_order > last) {
+                    PackageTesting::delete_by_id((
+                        info.pkg_name,
+                        repo.tree.clone(),
+                        branch.clone(),
+                    ))
+                    .exec(&self.conn)
+                    .await?;
+                }
+            }
         }
+
+        // delete unused branch
+        let current_branches_name = repo
+            .get_git2repo()
+            .branches(None)?
+            .filter_map(|b| Some(b.ok()?.0.name().ok()??.to_string()))
+            .collect_vec();
+        PackageTesting::delete_many()
+            .filter(package_testing::Column::Tree.eq(repo.tree.clone()))
+            .filter(package_testing::Column::Branch.is_not_in(current_branches_name))
+            .exec(&self.conn)
+            .await?;
+        PackageTesting::delete_many()
+            .filter(package_testing::Column::Tree.eq(repo.tree.clone()))
+            .filter(package_testing::Column::Branch.is_in(outdated_branches))
+            .exec(&self.conn)
+            .await?;
 
         Ok(())
     }
@@ -450,4 +506,29 @@ impl AbbsDb {
 
         Ok(())
     }
+}
+
+fn scan_branch(
+    repo: &Repository,
+    branch_name: &str,
+    take: Option<usize>,
+) -> Result<HashMap<Oid, usize>> {
+    use anyhow::Context;
+    let repo = repo.get_git2repo();
+
+    let branch = repo
+        .find_branch(branch_name, git2::BranchType::Remote)
+        .or_else(|_| repo.find_branch(branch_name, git2::BranchType::Local))?;
+    let mut revwalk = repo.revwalk()?;
+    revwalk.push(
+        branch
+            .get()
+            .target()
+            .with_context(|| format!("failed to get commit of branch {}", branch_name))?,
+    )?;
+    Ok(revwalk
+        .take(take.unwrap_or(100000000))
+        .enumerate()
+        .filter_map(|(i, x)| Some((x.ok()?, i)))
+        .collect())
 }
