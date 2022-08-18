@@ -12,8 +12,9 @@ use std::{collections::HashMap, path::PathBuf};
 use tracing::log::warn;
 
 pub type Context = HashMap<String, String>;
+pub type Meta = (Vec<(Package, Context)>, Vec<PackageError>);
 
-pub fn scan_packages(repo: &Repository) -> Option<(Vec<(Package, Context)>, Vec<PackageError>)> {
+pub fn scan_packages(repo: &Repository) -> Option<Meta> {
     let pkg_dirs = get_tree_dirs(repo).unwrap();
     let mut pkgs = Vec::new();
     let mut errors = vec![];
