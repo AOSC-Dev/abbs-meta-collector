@@ -22,7 +22,8 @@ async fn main() -> Result<()> {
         .await?;
 
     let (pkgs, errors) =
-        package::scan_packages(&repo).with_context(|| "failed to scan packages")?;
+        package::scan_packages(&repo, repo.get_branch_oid(repo.get_repo_branch())?)
+            .with_context(|| "failed to scan packages")?;
 
     // update package_errors table
     abbs_db.delete_package_errors().await?;
@@ -57,7 +58,7 @@ async fn main() -> Result<()> {
     let len = updated_pkgs.len();
     for (cnt, pkg_name) in updated_pkgs.iter().enumerate() {
         info!("{}/{len} {pkg_name}", cnt = cnt + 1);
-        if let Some(v) = map.get(pkg_name) {
+        if let Some(v) = map.remove(pkg_name) {
             for (pkg, context) in v {
                 let changes = package::scan_package_changes(&pkg.name, &repo, &commit_db).await?;
                 abbs_db.add_package(pkg, context, changes).await?;

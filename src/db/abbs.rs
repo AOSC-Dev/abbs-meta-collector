@@ -16,6 +16,7 @@ use git2::Oid;
 use itertools::Itertools;
 use sea_orm::{entity::*, query::*};
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection, EntityTrait, QueryFilter};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use tracing::info;
 use tracing::log::warn;
@@ -26,7 +27,7 @@ pub struct AbbsDb {
     branch: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ErrorType {
     Parse,
     Package,
@@ -42,7 +43,7 @@ impl ToString for ErrorType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PackageError {
     pub package: String,
     pub path: String,
@@ -156,8 +157,8 @@ impl AbbsDb {
 
     pub async fn add_package(
         &self,
-        pkg: &Package,
-        context: &Context,
+        pkg: Package,
+        context: Context,
         pkg_changes: Vec<Change>,
     ) -> Result<()> {
         let txn = self.conn.begin().await?;
@@ -212,7 +213,7 @@ impl AbbsDb {
                     pkg.directory
                 );
 
-                update_duplicate(pkg, &existing, &self.tree, db).await?;
+                update_duplicate(&pkg, &existing, &self.tree, db).await?;
             }
 
             if (&pkg.category, &pkg.section, &pkg.directory)
@@ -229,7 +230,7 @@ impl AbbsDb {
                     pkg.directory
                 );
 
-                update_duplicate(pkg, &existing, &self.tree, db).await?;
+                update_duplicate(&pkg, &existing, &self.tree, db).await?;
             }
         }
 
@@ -304,11 +305,11 @@ impl AbbsDb {
             .exec(db)
             .await?;
 
-        let iter = context.iter().map(|(k, v)| {
+        let iter = context.into_iter().map(|(k, v)| {
             package_spec::Model {
                 package: pkg.name.clone(),
-                key: k.clone(),
-                value: v.clone(),
+                key: k,
+                value: v,
             }
             .into_active_model()
         });
@@ -322,14 +323,14 @@ impl AbbsDb {
         let pkg_name = &pkg.name;
         type PkgDep = HashMap<String, Vec<(String, Option<String>, Option<String>)>>;
         async fn helper(
-            pkgdep: &PkgDep,
+            pkgdep: PkgDep,
             relationship: &str,
             pkg_name: &str,
             db: &impl ConnectionTrait,
         ) -> Result<()> {
-            for (architecture, v) in pkgdep.iter() {
+            for (architecture, v) in pkgdep {
                 let architecture = if architecture == "default" {
-                    ""
+                    "".into()
                 } else {
                     architecture
                 };
@@ -339,7 +340,7 @@ impl AbbsDb {
                         dependency,
                         relop,
                         version,
-                        architecture: architecture.to_string(),
+                        architecture: architecture.clone(),
                         relationship: relationship.to_string(),
                     }
                     .replace(db)
@@ -349,14 +350,14 @@ impl AbbsDb {
             Ok(())
         }
 
-        helper(&pkg.dependencies, "PKGDEP", pkg_name, db).await?;
-        helper(&pkg.build_dependencies, "BUILDDEP", pkg_name, db).await?;
-        helper(&pkg.package_suggests, "PKGSUG", pkg_name, db).await?;
-        helper(&pkg.package_provides, "PKGPROV", pkg_name, db).await?;
-        helper(&pkg.package_recommands, "PKGRECOM", pkg_name, db).await?;
-        helper(&pkg.package_replaces, "PKGREP", pkg_name, db).await?;
-        helper(&pkg.package_breaks, "PKGBREAK", pkg_name, db).await?;
-        helper(&pkg.package_configs, "PKGCONFIG", pkg_name, db).await?;
+        helper(pkg.dependencies, "PKGDEP", pkg_name, db).await?;
+        helper(pkg.build_dependencies, "BUILDDEP", pkg_name, db).await?;
+        helper(pkg.package_suggests, "PKGSUG", pkg_name, db).await?;
+        helper(pkg.package_provides, "PKGPROV", pkg_name, db).await?;
+        helper(pkg.package_recommands, "PKGRECOM", pkg_name, db).await?;
+        helper(pkg.package_replaces, "PKGREP", pkg_name, db).await?;
+        helper(pkg.package_breaks, "PKGBREAK", pkg_name, db).await?;
+        helper(pkg.package_configs, "PKGCONFIG", pkg_name, db).await?;
 
         txn.commit().await?;
         Ok(())
@@ -419,7 +420,7 @@ impl AbbsDb {
     ) -> Result<()> {
         let result = commit_db.update_package_testing(repo, exculde).await?;
 
-        let main = scan_branch(repo, repo.get_branch(), Some(1000))?;
+        let main = scan_branch(repo, repo.get_repo_branch(), Some(1000))?;
         let mut outdated_branches = vec![];
 
         for (branch, info) in result {

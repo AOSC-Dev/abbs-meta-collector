@@ -1,5 +1,5 @@
 use crate::Config;
-use anyhow::{Context, Ok, Result};
+use anyhow::{Context, Result};
 use git2::{Blob, Commit, Error, Oid, Repository as Git2Repository, TreeWalkResult};
 use std::path::{Path, PathBuf};
 pub mod commit;
@@ -9,6 +9,30 @@ pub struct Repository {
     repo: git2::Repository,
     pub branch: String,
     pub tree: String,
+}
+
+pub struct SyncRepository {
+    pub repo_path: PathBuf,
+    pub branch: String,
+    pub tree: String,
+}
+
+impl From<&Repository> for SyncRepository {
+    fn from(repo: &Repository) -> Self {
+        Self {
+            repo_path: repo.repo_path.clone(),
+            branch: repo.branch.clone(),
+            tree: repo.tree.clone(),
+        }
+    }
+}
+
+impl TryFrom<&SyncRepository> for Repository {
+    type Error = git2::Error;
+
+    fn try_from(repo: &SyncRepository) -> Result<Self, Self::Error> {
+        Self::open(&repo.repo_path, &repo.tree, &repo.branch)
+    }
 }
 
 impl TryFrom<&Config> for Repository {
@@ -21,7 +45,11 @@ impl TryFrom<&Config> for Repository {
 }
 
 impl Repository {
-    pub fn open<P: AsRef<Path>, S: AsRef<str>>(path: P, tree: S, branch: S) -> Result<Repository> {
+    pub fn open<P: AsRef<Path>, S: AsRef<str>>(
+        path: P,
+        tree: S,
+        branch: S,
+    ) -> std::result::Result<Repository, git2::Error> {
         let repo = Git2Repository::open(path.as_ref())?;
         repo.find_branch(branch.as_ref(), git2::BranchType::Local)?;
         Ok(Repository {
@@ -32,18 +60,19 @@ impl Repository {
         })
     }
 
-    pub fn get_branch(&self) -> &str {
+    pub fn get_repo_branch(&self) -> &str {
         &self.branch
     }
 
-    pub fn get_branch_oid(&self) -> Result<Oid> {
+    pub fn get_branch_oid(&self, branch_name: &str) -> Result<Oid> {
         let branch = self
             .repo
-            .find_branch(&self.branch, git2::BranchType::Local)?;
+            .find_branch(branch_name, git2::BranchType::Local)
+            .or_else(|_| self.repo.find_branch(branch_name, git2::BranchType::Remote))?;
         let branch = branch
             .into_reference()
             .target()
-            .with_context(|| format!("branch {} doesn't exist", self.branch));
+            .with_context(|| format!("branch {} doesn't exist", branch_name));
 
         branch
     }
@@ -59,9 +88,8 @@ impl Repository {
     pub fn get_git2repo(&self) -> &Git2Repository {
         &self.repo
     }
-    pub fn walk_branch(&self) -> Result<Vec<PathBuf>> {
-        let branch = self.get_branch_oid()?;
-        let commit = self.repo.find_commit(branch)?;
+    pub fn walk_commit(&self, commit: Oid) -> Result<Vec<PathBuf>> {
+        let commit = self.repo.find_commit(commit)?;
         let tree = commit.tree()?;
 
         let mut dirs = vec![];
@@ -80,9 +108,8 @@ impl Repository {
     }
 
     #[inline(always)]
-    pub fn read_file(&self, path: impl AsRef<Path>) -> Result<String> {
-        let branch = self.get_branch_oid()?;
-        let commit = self.repo.find_commit(branch)?;
+    pub fn read_file(&self, path: impl AsRef<Path>, commit: Oid) -> Result<String> {
+        let commit = self.repo.find_commit(commit)?;
         let tree = commit.tree()?;
         Ok(String::from_utf8(
             self.repo

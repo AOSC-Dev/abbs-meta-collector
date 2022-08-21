@@ -1,24 +1,27 @@
 use super::entities::prelude::*;
 use super::entities::{commit, history};
 use super::{replace_many, CreateTable};
+use crate::db::abbs::PackageError;
 use crate::git::commit::FileStatus;
-use crate::git::Repository;
+use crate::git::{Repository, SyncRepository};
+use crate::package::{defines_path_to_spec_path, scan_package, Context};
 use crate::skip_error;
-use crate::skip_none;
-use abbs_meta_apml::parse;
+use abbs_meta_tree::Package;
 use anyhow::Result;
 use git2::{Oid, TreeWalkResult};
 use indexmap::IndexSet;
 use itertools::Itertools;
-use rayon::prelude::IntoParallelIterator;
+use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use sea_orm::sea_query::Query;
 use sea_orm::ActiveValue::NotSet;
-use sea_orm::{ActiveModelTrait, Database, QueryOrder, TransactionTrait};
+use sea_orm::{ActiveModelTrait, Database, IntoActiveModel, QueryOrder, TransactionTrait};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+use thread_local::ThreadLocal;
+use tracing::log::warn;
 
 use FileStatus::*;
 
@@ -27,14 +30,18 @@ pub struct CommitDb {
     conn: DatabaseConnection,
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct CommitInfo {
     pub commit_id: String,
-    pub time: i64,
+    pub commit_time: i64,
     pub pkg_name: String,
     pub pkg_version: String,
+    pub pkg: Package,
+    pub errors: Vec<PackageError>,
+    pub context: Context,
     pub defines_path: String,
     pub spec_path: String,
+    pub file_status: FileStatus,
 }
 
 impl CommitDb {
@@ -53,128 +60,133 @@ impl CommitDb {
         repo: &Repository,
         branch: impl AsRef<str>,
         commits: impl IntoParallelIterator<Item = Oid>,
-    ) -> Result<HashSet<CommitInfo>> {
-        let result = repo.scan_commits(commits)?;
+    ) -> Result<Vec<CommitInfo>> {
         let db = self.conn.begin().await?;
 
-        let mut commit_info = HashSet::new();
-        for (commit_id, time, file_path, file_status) in result {
-            if ![Added, Modified].contains(&file_status) {
-                continue;
-            }
-            let commit = skip_error!(repo.find_commit(commit_id));
-            let tree = skip_error!(commit.tree());
+        let sync_repo: &SyncRepository = &repo.into();
+        let local_repo: ThreadLocal<Repository> = ThreadLocal::new();
 
-            let mut insert_package_commit_info = |defines_path: PathBuf| -> Option<()> {
-                let defines_path_to_spec_path = |path: &Path| -> Option<PathBuf> {
-                    let mut spec_path = path.parent()?.parent()?.to_path_buf();
-                    spec_path.push("spec");
-                    Some(spec_path)
-                };
-
-                let spec_path = defines_path_to_spec_path(&defines_path)?;
-                let mut context = HashMap::new();
-                let get_file_content = |path| -> Option<String> {
-                    String::from_utf8(
-                        repo.find_blob(tree.get_path(path).ok()?.id())
-                            .ok()?
-                            .content()
-                            .to_vec(),
-                    )
-                    .ok()
-                };
-
-                let spec = get_file_content(&spec_path)?;
-                let defines = get_file_content(&defines_path)?;
-
-                // just ignore parse error
-                parse(&spec, &mut context).ok();
-                parse(&defines, &mut context).ok();
-
-                let pkg_name = context.get("PKGNAME")?.clone();
-                let pkg_version = context.get("VER")?.clone();
-                let spec_path = spec_path.to_str()?.to_string();
-                let defines_path = defines_path.to_str()?.to_string();
-
-                commit_info.insert(CommitInfo {
-                    commit_id: commit_id.to_string(),
-                    time: time.seconds(),
-                    pkg_name,
-                    pkg_version,
-                    defines_path,
-                    spec_path,
-                });
-                Some(())
-            };
-
-            // return absolute paths
-            let walk = |path| -> Option<_> {
-                let entry = tree.get_path(path).ok()?;
-                let pkg_tree = repo.get_git2repo().find_tree(entry.id()).ok()?;
-                let mut dirs = Vec::new();
-
-                pkg_tree
-                    .walk(git2::TreeWalkMode::PostOrder, |dir, file| {
-                        if let Some(filename) = file.name() {
-                            let mut res = path.to_path_buf();
-                            res.push(Path::new(dir));
-                            res.push(filename);
-                            dirs.push(res);
+        let commit_info: Vec<_> = repo
+            .scan_commits(commits)?
+            .into_par_iter()
+            .filter_map(|(commit_id, time, file_path, file_status)| {
+                let repo = local_repo.get_or(|| sync_repo.try_into().unwrap());
+                let commit = match file_status {
+                    Added | Modified => repo.find_commit(commit_id).ok()?,
+                    Deleted => {
+                        let commit = repo.find_commit(commit_id).ok()?;
+                        let parents: Vec<_> = commit.parents().collect();
+                        match parents.len() {
+                            1 | 2 => parents[0].clone(),
+                            n => {
+                                warn!("{n} parents in commit {commit:?}");
+                                return None;
+                            }
                         }
-                        TreeWalkResult::Ok
+                    }
+                    _ => return None,
+                };
+                let tree = commit.tree().ok()?;
+
+                let generate_package_commit_info = |defines_path: PathBuf| {
+                    let spec_path = defines_path_to_spec_path(&defines_path).ok()?;
+
+                    let (res, errors) = scan_package(repo, commit_id, &spec_path, &defines_path);
+                    let (pkg, context) = res?;
+
+                    Some(CommitInfo {
+                        commit_id: commit_id.to_string(),
+                        commit_time: time.seconds(),
+                        pkg_name: pkg.name.clone(),
+                        pkg_version: pkg.version.clone(),
+                        defines_path: defines_path.to_str()?.to_string(),
+                        spec_path: spec_path.to_str()?.to_string(),
+                        pkg,
+                        errors,
+                        context,
+                        file_status,
                     })
-                    .ok();
-                Some(dirs)
-            };
+                };
 
-            let file_name = skip_none!(skip_none!(file_path.file_name()).to_str());
-            match file_name {
-                "defines" => {
-                    skip_none!(insert_package_commit_info(file_path))
-                }
-                "spec" => {
-                    let pkg_path = skip_none!(file_path.parent());
-                    for path in skip_none!(walk(pkg_path)) {
-                        if path.file_name() == Some(OsStr::new("defines")) {
-                            insert_package_commit_info(path);
+                // return absolute paths
+                let walk = |path| -> Option<_> {
+                    let entry = tree.get_path(path).ok()?;
+                    let pkg_tree = repo.get_git2repo().find_tree(entry.id()).ok()?;
+                    let mut dirs = Vec::new();
+
+                    pkg_tree
+                        .walk(git2::TreeWalkMode::PostOrder, |dir, file| {
+                            if let Some(filename) = file.name() {
+                                let mut res = path.to_path_buf();
+                                res.push(Path::new(dir));
+                                res.push(filename);
+                                dirs.push(res);
+                            }
+                            TreeWalkResult::Ok
+                        })
+                        .ok();
+                    Some(dirs)
+                };
+
+                let file_name = file_path.file_name()?.to_str()?;
+                match file_name {
+                    "defines" => generate_package_commit_info(file_path),
+                    "spec" => {
+                        let pkg_path = file_path.parent()?;
+                        for path in walk(pkg_path)? {
+                            if path.file_name() == Some(OsStr::new("defines")) {
+                                return generate_package_commit_info(path);
+                            }
                         }
+                        None
+                    }
+                    _ => {
+                        for path in file_path.ancestors() {
+                            let mut path = path.to_path_buf();
+                            path.push(Path::new("defines"));
+                            if tree.get_path(&path).is_ok() {
+                                return generate_package_commit_info(path);
+                            }
+                        }
+                        None
                     }
                 }
-                _ => {
-                    for path in file_path.ancestors() {
-                        let mut path = path.to_path_buf();
-                        path.push(Path::new("defines"));
-                        if tree.get_path(&path).is_ok() {
-                            insert_package_commit_info(path);
-                        }
-                    }
-                }
-            };
-        }
+            })
+            .collect();
 
         let iters = commit_info
             .clone()
             .into_iter()
-            .map(
+            .filter_map(
                 |CommitInfo {
                      commit_id,
-                     time,
+                     commit_time,
                      pkg_name,
                      pkg_version,
                      defines_path,
                      spec_path,
+                     pkg,
+                     errors,
+                     context,
+                     file_status,
                  }| {
-                    commit::ActiveModel {
-                        tree: Set(repo.tree.clone()),
-                        branch: Set(branch.as_ref().to_string()),
-                        commit_id: Set(commit_id),
-                        commit_time: Set(time),
-                        pkg_name: Set(pkg_name),
-                        pkg_version: Set(pkg_version),
-                        spec_path: Set(spec_path),
-                        defines_path: Set(defines_path),
-                        id: NotSet,
-                    }
+                    Some(
+                        commit::Model {
+                            pkg_name,
+                            pkg_version,
+                            spec_path,
+                            defines_path,
+                            tree: repo.tree.clone(),
+                            branch: branch.as_ref().to_string(),
+                            commit_id,
+                            commit_time,
+                            pkg: serde_json::to_value(pkg).ok()?,
+                            errors: serde_json::to_value(errors).ok()?,
+                            context: serde_json::to_value(context).ok()?,
+                            file_status: file_status.to_string(),
+                        }
+                        .into_active_model(),
+                    )
                 },
             )
             .chunks(2048);
@@ -190,60 +202,34 @@ impl CommitDb {
         &self,
         repo: &Repository,
         exculde: &HashSet<String>,
-    ) -> Result<HashMap<String, HashSet<CommitInfo>>> {
-        use anyhow::Context;
-        use git2::Branch;
-
+    ) -> Result<HashMap<String, Vec<CommitInfo>>> {
         let branches = repo
             .get_git2repo()
             .branches(None)?
-            .filter_map(|x| x.ok())
-            .map(|x| x.0)
+            .filter_map(|x| Some(x.ok()?.0.name().ok()??.to_string()))
             .collect_vec();
 
-        let get_head_oid = |branch: &Branch| {
-            branch
-                .get()
-                .target()
-                .with_context(|| format!("failed to find commit of branch {:?}", branch.name()))
-        };
-
-        let stable = branches
-            .iter()
-            .find(|b| Ok(Some("stable")) == b.name())
-            .with_context(|| "there is no stable branch")?;
         let stable_commits = repo
-            .get_commits_by_range(get_head_oid(stable)?, None)?
+            .get_commits_by_range(repo.get_branch_oid("stable")?, None)?
             .into_iter()
             .collect();
 
         let testing_branches = branches
             .into_iter()
-            .filter_map(|b| {
-                if let Ok(Some(name)) = b.name() {
-                    if (name == "stable")
-                        | (name == "origin/HEAD")
-                        | (name == "origin/stable")
-                        | name.starts_with("retro")
-                        | name.starts_with("origin/retro")
-                        | exculde.contains(name)
-                    {
-                        return None;
-                    }
-                }
-                Some(b)
+            .filter_map(|name| {
+                (!(name.starts_with("retro")
+                    | name.starts_with("origin/retro")
+                    | ["stable", "origin/HEAD", "origin/stable"].contains(&name.as_str())
+                    | exculde.contains(&name)))
+                .then_some(name)
             })
             .collect_vec();
 
         let mut result = HashMap::new();
-
-        for testing in testing_branches {
-            let from = get_head_oid(&testing)?;
-            let branch = testing
-                .name()?
-                .with_context(|| "failed to parse branch name")?;
+        for testing in testing_branches.iter() {
+            let from = skip_error!(repo.get_branch_oid(testing));
             let to = self
-                .get_latest_history(&repo.tree, branch)
+                .get_latest_history(&repo.tree, testing)
                 .await?
                 .and_then(|m| Oid::from_str(&m.commit_id).ok());
 
@@ -251,12 +237,12 @@ impl CommitDb {
                 repo.get_commits_by_range(from, to)?.into_iter().collect();
 
             let ahead = &testing_commits - &stable_commits;
-            let info = self.add_commits(repo, branch, ahead).await?;
+            let info = self.add_commits(repo, testing, ahead).await?;
 
-            self.insert_history(&repo.tree, branch, from).await?;
+            self.insert_history(&repo.tree, testing, from).await?;
 
             if !info.is_empty() {
-                result.insert(branch.to_string(), info);
+                result.insert(testing.to_string(), info);
             }
         }
 
@@ -306,14 +292,14 @@ impl CommitDb {
 
     /// return updated packages' name
     /// branch is decided by repo.branch
-    pub async fn update_repo_branch(&self, repo: &Repository) -> Result<HashSet<CommitInfo>> {
+    pub async fn update_repo_branch(&self, repo: &Repository) -> Result<Vec<CommitInfo>> {
         // SELECT commit_id, history FROM history WHERE timestamp = (SELECT MAX(timestamp) FROM history)
         let to = self
             .get_latest_history(&repo.tree, &repo.branch)
             .await?
             .and_then(|x| Oid::from_str(&x.commit_id).ok());
 
-        let from = repo.get_branch_oid()?;
+        let from = repo.get_branch_oid(&repo.branch)?;
         let commits = repo.get_commits_by_range(from, to)?;
         let result = self.add_commits(repo, repo.branch.clone(), commits).await?;
 

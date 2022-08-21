@@ -5,16 +5,24 @@ use sea_orm::entity::prelude::*;
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "commits")]
 pub struct Model {
-    pub commit_id: String,
-    pub commit_time: i64,
+    #[sea_orm(primary_key)]
     pub pkg_name: String,
+    #[sea_orm(primary_key)]
     pub pkg_version: String,
     pub spec_path: String,
     pub defines_path: String,
+    #[sea_orm(primary_key)]
     pub tree: String,
+    #[sea_orm(primary_key)]
     pub branch: String,
-    #[sea_orm(primary_key, auto_increment = true)]
-    pub id: u32,
+    #[sea_orm(primary_key)]
+    pub commit_id: String,
+    pub commit_time: i64,
+    #[sea_orm(primary_key)]
+    pub file_status: String,
+    pub pkg: serde_json::Value,
+    pub errors: serde_json::Value,
+    pub context: serde_json::Value,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter)]

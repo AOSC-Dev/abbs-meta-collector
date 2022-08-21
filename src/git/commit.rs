@@ -1,4 +1,4 @@
-use super::Repository;
+use super::{Repository, SyncRepository};
 use anyhow::Result;
 use git2::{Delta, Oid, Time};
 use rayon::prelude::*;
@@ -71,13 +71,12 @@ impl Repository {
         &self,
         oids: impl IntoParallelIterator<Item = Oid>,
     ) -> Result<Vec<(Oid, Time, PathBuf, FileStatus)>> {
-        let repo_path = &self.repo_path.clone();
-
-        let repo: ThreadLocal<git2::Repository> = ThreadLocal::new();
+        let sync_repo: &SyncRepository = &self.into();
+        let repo: ThreadLocal<Repository> = ThreadLocal::new();
         let result = oids
             .into_par_iter()
             .filter_map(|oid| {
-                let repo = repo.get_or(|| git2::Repository::open(repo_path).unwrap());
+                let repo = repo.get_or(|| sync_repo.try_into().unwrap());
                 let commit = repo.find_commit(oid).ok()?;
 
                 let parents: Vec<_> = commit.parents().collect();
@@ -93,6 +92,7 @@ impl Repository {
                 let parent_tree = parent_tree.as_ref();
 
                 let diff = repo
+                    .get_git2repo()
                     .diff_tree_to_tree(parent_tree, Some(&commit.tree().ok()?), None)
                     .ok()?;
 
