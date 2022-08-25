@@ -12,7 +12,6 @@ use itertools::Itertools;
 use std::ffi::OsStr;
 use std::path::Path;
 use std::{collections::HashMap, path::PathBuf};
-
 pub type Context = HashMap<String, String>;
 pub type Meta = (Package, Context, Vec<PackageError>);
 

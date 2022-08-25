@@ -18,9 +18,10 @@ async fn main() -> Result<()> {
     let abbs_db = &(AbbsDb::open(&config).await?);
 
     abbs_db
-        .update_package_testing(commit_db, repo, &HashSet::new())
+        .update_testing_branch(commit_db, repo, &HashSet::new())
         .await?;
     commit_db.update_branch(repo, &repo.branch).await?;
+
     let (deleted, updated) = commit_db.get_updated_packages(repo, &repo.branch).await?;
 
     let deleted = deleted

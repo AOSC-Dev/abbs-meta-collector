@@ -18,11 +18,6 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub commit_id: String,
     pub commit_time: i64,
-    #[sea_orm(primary_key)]
-    pub file_status: String,
-    pub pkg: serde_json::Value,
-    pub errors: serde_json::Value,
-    pub context: serde_json::Value,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter)]

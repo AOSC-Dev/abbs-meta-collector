@@ -1,15 +1,12 @@
+use super::entities::prelude::*;
 use super::entities::{commit, history};
-use super::entities::{commit_path, prelude::*};
 use super::{replace_many, CreateTable};
-use crate::db::abbs::PackageError;
 use crate::git::commit::FileStatus;
 use crate::git::{Repository, SyncRepository};
 use crate::package::{
-    defines_path_to_spec_path, scan_package, scan_packages, spec_path_to_defines_path, Context,
-    Meta,
+    defines_path_to_spec_path, scan_package, scan_packages, spec_path_to_defines_path, Meta,
 };
 use crate::skip_error;
-use abbs_meta_tree::Package;
 use anyhow::{bail, Result};
 use git2::Oid;
 use indexmap::IndexSet;
@@ -26,7 +23,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use thread_local::ThreadLocal;
 use tracing::info;
 use tracing::log::warn;
-
 use FileStatus::*;
 
 #[derive(Debug)]
@@ -54,12 +50,8 @@ pub struct CommitInfo {
     pub commit_time: i64,
     pub pkg_name: String,
     pub pkg_version: String,
-    pub pkg: Package,
-    pub errors: Vec<PackageError>,
-    pub context: Context,
     pub defines_path: String,
     pub spec_path: String,
-    pub file_status: FileStatus,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -77,7 +69,6 @@ impl CommitDb {
 
         Commit.create_table(&conn).await?;
         History.create_table(&conn).await?;
-        CommitPath.create_table(&conn).await?;
 
         Ok(Self { conn })
     }
@@ -120,20 +111,16 @@ impl CommitDb {
                 let generate_package_commit_info = |defines_path: &PathBuf| {
                     let spec_path = defines_path_to_spec_path(defines_path).ok()?;
 
-                    let (res, errors) = scan_package(repo, commit_id, &spec_path, defines_path);
-                    let (pkg, context) = res?;
+                    let (res, _) = scan_package(repo, commit_id, &spec_path, defines_path);
+                    let (pkg, _) = res?;
 
                     Some(CommitInfo {
                         commit_id,
                         commit_time: time.seconds(),
                         pkg_name: pkg.name.clone(),
-                        pkg_version: pkg.version.clone(),
+                        pkg_version: pkg.version,
                         defines_path: defines_path.to_str()?.to_string(),
                         spec_path: spec_path.to_str()?.to_string(),
-                        pkg,
-                        errors,
-                        context,
-                        file_status: *file_status,
                     })
                 };
 
@@ -175,30 +162,10 @@ impl CommitDb {
             })
             .collect();
 
-        let commit_path: Vec<_> = result
-            .into_par_iter()
-            .filter_map(|(commit_id, time, file_path, file_status)| -> Option<_> {
-                Some(
-                    commit_path::Model {
-                        path: file_path.to_str()?.to_string(),
-                        tree: tree.clone(),
-                        branch: branch.to_string(),
-                        commit_id: commit_id.to_string(),
-                        commit_time: time.seconds(),
-                        status: file_status.to_string(),
-                    }
-                    .into_active_model(),
-                )
-            })
-            .collect();
-        for iter in commit_path.into_iter().chunks(2048).into_iter() {
-            replace_many(iter).exec(&db).await?;
-        }
-
         let iters = commit_info
             .clone()
             .into_iter()
-            .filter_map(
+            .map(
                 |CommitInfo {
                      commit_id,
                      commit_time,
@@ -206,28 +173,18 @@ impl CommitDb {
                      pkg_version,
                      defines_path,
                      spec_path,
-                     pkg,
-                     errors,
-                     context,
-                     file_status,
                  }| {
-                    Some(
-                        commit::Model {
-                            pkg_name,
-                            pkg_version,
-                            spec_path,
-                            defines_path,
-                            tree: tree.clone(),
-                            branch: branch.to_string(),
-                            commit_id: commit_id.to_string(),
-                            commit_time,
-                            pkg: serde_json::to_value(pkg).ok()?,
-                            errors: serde_json::to_value(errors).ok()?,
-                            context: serde_json::to_value(context).ok()?,
-                            file_status: file_status.to_string(),
-                        }
-                        .into_active_model(),
-                    )
+                    commit::Model {
+                        pkg_name,
+                        pkg_version,
+                        spec_path,
+                        defines_path,
+                        tree: tree.clone(),
+                        branch: branch.to_string(),
+                        commit_id: commit_id.to_string(),
+                        commit_time,
+                    }
+                    .into_active_model()
                 },
             )
             .chunks(2048);

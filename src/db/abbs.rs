@@ -7,7 +7,6 @@ use super::{exec, replace_many, InstertExt};
 use crate::db::CreateTable;
 use crate::git::Repository;
 use crate::package::Meta;
-
 use crate::skip_none;
 use crate::Config;
 use abbs_meta_tree::Package;
@@ -424,7 +423,7 @@ impl AbbsDb {
         Ok(())
     }
 
-    pub async fn update_package_testing(
+    pub async fn update_testing_branch(
         &self,
         commit_db: &CommitDb,
         repo: &Repository,
