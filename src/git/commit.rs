@@ -49,15 +49,16 @@ impl ToString for FileStatus {
 }
 
 impl Repository {
-    pub fn get_commits_by_range(&self, from: Oid, to: Option<Oid>) -> Result<Vec<Oid>> {
+    // from old commit to new commit
+    pub fn get_commits_by_range(&self, from: Option<Oid>, to: Oid) -> Result<Vec<Oid>> {
         let mut revwalk = self.repo.revwalk()?;
-        revwalk.push(from)?;
+        revwalk.push(to)?;
 
         let mut oids = vec![];
 
         for oid in revwalk {
             let oid = oid?;
-            if Some(oid) != to {
+            if Some(oid) != from {
                 oids.push(oid);
             } else {
                 break;

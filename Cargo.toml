@@ -6,8 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-abbs-meta-apml = { path = "/home/chez/github/abbs-meta-rs/apml" }
-abbs-meta-tree = { path = "/home/chez/github/abbs-meta-rs/tree" }
+abbs-meta-apml = { git = "https://github.com/7rah/abbs-meta-rs" }
+abbs-meta-tree = { git = "https://github.com/7rah/abbs-meta-rs" }
 toml = "0.5"
 serde = { version = "1.0", features = ["derive"] }
 anyhow = "1"
@@ -27,6 +27,6 @@ thread_local = "1"
 async-trait = "0.1"
 
 [profile.release]
-lto = "fat"
-codegen-units = 1
+#lto = "fat"
+#codegen-units = 1
 panic = "abort"

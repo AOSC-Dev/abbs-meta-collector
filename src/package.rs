@@ -1,35 +1,34 @@
 use crate::db::abbs::ErrorType;
 use crate::db::abbs::PackageError;
-use crate::db::commits::CommitDb;
 use crate::git::Repository;
+use crate::skip_none;
 use abbs_meta_apml::parse;
 use abbs_meta_tree::Package;
 use anyhow::Context as AnyhowContext;
 use anyhow::Result;
 use git2::Oid;
-use std::collections::HashSet;
+use git2::TreeWalkResult;
+use itertools::Itertools;
 use std::ffi::OsStr;
 use std::path::Path;
 use std::{collections::HashMap, path::PathBuf};
-use tracing::log::warn;
 
 pub type Context = HashMap<String, String>;
-pub type Meta = (Vec<(Package, Context)>, Vec<PackageError>);
+pub type Meta = (Package, Context, Vec<PackageError>);
 
-pub fn scan_packages(repo: &Repository, commit: Oid) -> Option<Meta> {
-    let pkg_dirs = get_tree_dirs(repo, commit).unwrap();
-    let mut pkgs = Vec::with_capacity(pkg_dirs.len());
-    let mut errors = vec![];
-
-    for (spec_path, defines_path) in pkg_dirs {
-        let (pkg, error) = scan_package(repo, commit, &spec_path, &defines_path);
-        errors.extend(error);
-        if let Some(pkg) = pkg {
-            pkgs.push(pkg);
-        }
-    }
-
-    Some((pkgs, errors))
+pub fn scan_packages(
+    repo: &Repository,
+    commit: Oid,
+    pkg_dirs: Vec<(&PathBuf, &PathBuf)>,
+) -> Vec<Meta> {
+    pkg_dirs
+        .iter()
+        .filter_map(|(spec, defines)| {
+            let (pkg, errors) = scan_package(repo, commit, spec, defines);
+            let pkg = pkg?;
+            Some((pkg.0, pkg.1, errors))
+        })
+        .collect_vec()
 }
 
 #[inline(always)]
@@ -74,67 +73,6 @@ pub fn scan_package(
             (None, errors)
         }
     }
-}
-
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub struct Change {
-    pub pkg_name: String,
-    pub version: String,
-    pub branch: String,
-    pub urgency: String,
-    pub message: String,
-    pub githash: String,
-    pub maintainer_name: String,
-    pub maintainer_email: String,
-    pub timestamp: i64,
-}
-
-pub async fn scan_package_changes(
-    pkg_name: &str,
-    repo: &Repository,
-    commit_db: &CommitDb,
-) -> Result<Vec<Change>> {
-    let changes = commit_db
-        .get_commits_by_packages(&repo.tree, &repo.branch, pkg_name)
-        .await
-        .unwrap();
-
-    let changes = changes
-        .into_iter()
-        .filter_map(|(commit_id, pkg_version, _, _)| {
-            let commit = repo.find_commit(commit_id).ok()?;
-
-            let githash = commit_id.to_string();
-            let message = commit.message()?.to_string();
-            let maintainer = commit.committer();
-            let maintainer_name = maintainer.name()?.to_string();
-            let maintainer_email = maintainer.email()?.to_string();
-            let timestamp = commit.time().seconds();
-            let version = pkg_version;
-            let urgency = message
-                .find("security")
-                .map_or("medium", |_| "high")
-                .to_string();
-            let pkg_name = pkg_name.to_string();
-            let branch = repo.get_repo_branch().to_string();
-
-            let change = Change {
-                pkg_name,
-                version,
-                branch,
-                urgency,
-                message,
-                githash,
-                maintainer_name,
-                maintainer_email,
-                timestamp,
-            };
-            Some(change)
-        })
-        .collect();
-
-    Ok(changes)
 }
 
 fn parse_spec_and_defines(
@@ -189,27 +127,39 @@ fn spec_decorator(c: &mut Context) {
     }
 }
 
-fn get_tree_dirs(repo: &Repository, commit: Oid) -> Result<Vec<(PathBuf, PathBuf)>> {
-    let walker: HashSet<_> = repo.walk_commit(commit)?.into_iter().collect();
-    let mut pkg_dirs = Vec::new();
-    for file in walker.iter() {
-        if file.file_name() == Some(OsStr::new("defines")) {
-            let spec_path = defines_path_to_spec_path(file)?;
-            if !walker.contains(&spec_path) {
-                warn!(
-                    "spec file not found in {} for {}. Skipping",
-                    spec_path.display(),
-                    file.display()
-                );
+pub fn spec_path_to_defines_path(
+    repo: &Repository,
+    commit: Oid,
+    spec_path: &Path,
+) -> Option<Vec<PathBuf>> {
+    let tree = repo.find_commit(commit).ok()?.tree().ok()?;
 
-                continue;
-            }
+    let walk = |path| -> Option<_> {
+        let entry = tree.get_path(path).ok()?;
+        let pkg_tree = repo.get_git2repo().find_tree(entry.id()).ok()?;
+        let mut dirs = Vec::new();
 
-            pkg_dirs.push((spec_path, file.to_path_buf()));
-        }
-    }
+        pkg_tree
+            .walk(git2::TreeWalkMode::PostOrder, |dir, file| {
+                if let Some(filename) = file.name() {
+                    let mut res = path.to_path_buf();
+                    res.push(Path::new(dir));
+                    res.push(filename);
+                    dirs.push(res);
+                }
+                TreeWalkResult::Ok
+            })
+            .ok();
+        Some(dirs)
+    };
 
-    Ok(pkg_dirs)
+    let pkg_path = spec_path.parent()?;
+    let res = walk(pkg_path)?
+        .iter()
+        .filter(|path| path.file_name() == Some(OsStr::new("defines")))
+        .cloned()
+        .collect_vec();
+    Some(res)
 }
 
 pub fn defines_path_to_spec_path(defines_path: &Path) -> Result<PathBuf> {

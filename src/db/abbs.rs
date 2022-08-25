@@ -1,4 +1,4 @@
-use super::commits::CommitDb;
+use super::commits::{Change, CommitDb};
 use super::entities::{
     fts_packages, package_changes, package_dependencies, package_duplicate, package_errors,
     package_spec, package_testing, package_versions, packages, prelude::*, tree_branches, trees,
@@ -6,8 +6,8 @@ use super::entities::{
 use super::{exec, replace_many, InstertExt};
 use crate::db::CreateTable;
 use crate::git::Repository;
-use crate::package::{Change, Context};
-use crate::skip_error;
+use crate::package::Meta;
+
 use crate::skip_none;
 use crate::Config;
 use abbs_meta_tree::Package;
@@ -74,24 +74,49 @@ impl AbbsDb {
         PackageChanges.create_table(&conn).await?;
         PackageErrors.create_table(&conn).await?;
         PackageTesting.create_table(&conn).await?;
+        History.create_table(&conn).await?;
 
-        exec(&conn, "CREATE VIRTUAL TABLE IF NOT EXISTS fts_packages USING fts5(name, description, tokenize = porter)", []).await?;
         exec(
             &conn,
-            "CREATE VIEW IF NOT EXISTS v_packages AS 
-                SELECT p.name name, p.tree tree, 
-                  t.category tree_category, 
-                  pv.branch branch, p.category category, 
-                  section, pkg_section, directory, description, version, 
-                  ((CASE WHEN ifnull(epoch, '') = '' THEN '' 
-                    ELSE epoch || ':' END) || version || 
-                   (CASE WHEN ifnull(release, '') IN ('', '0') THEN '' 
-                    ELSE '-' || release END)) full_version, 
-                  pv.commit_time commit_time, pv.committer committer 
-                FROM packages p 
-                INNER JOIN trees t ON t.name=p.tree 
-                LEFT JOIN package_versions pv 
-                  ON pv.package=p.name AND pv.branch=t.mainbranch",
+            "CREATE VIRTUAL TABLE IF NOT EXISTS fts_packages USING fts5(name, description, tokenize = porter)",
+            [],
+        )
+        .await?;
+        exec(
+            &conn,
+            "
+            CREATE VIEW IF NOT EXISTS v_packages AS
+            SELECT
+                p.name name,
+                p.tree tree,
+                t.category tree_category,
+                pv.branch branch,
+                p.category category,
+                section,
+                pkg_section,
+                directory,
+                description,
+                version,
+                (
+                    (
+                        CASE
+                            WHEN ifnull(epoch, '') = '' THEN ''
+                            ELSE epoch || ':'
+                        END
+                    ) || version || (
+                        CASE
+                            WHEN ifnull(release, '') IN ('', '0') THEN ''
+                            ELSE '-' || release
+                        END
+                    )
+                ) full_version,
+                pv.commit_time commit_time,
+                pv.committer committer
+            FROM
+                packages p
+                INNER JOIN trees t ON t.name = p.tree
+                LEFT JOIN package_versions pv ON pv.package = p.name
+                AND pv.branch = t.mainbranch",
             [],
         )
         .await?;
@@ -132,35 +157,8 @@ impl AbbsDb {
         })
     }
 
-    pub async fn delete_package_errors(&self) -> Result<()> {
-        Delete::many(PackageErrors)
-            .filter(package_errors::Column::Tree.eq(self.tree.to_string()))
-            .filter(package_errors::Column::Branch.eq(self.branch.to_string()))
-            .exec(&self.conn)
-            .await?;
-
-        Ok(())
-    }
-    pub async fn add_package_errors(&self, errors: Vec<PackageError>) -> Result<()> {
-        let iter = errors.into_iter().map(|e| package_errors::ActiveModel {
-            package: Set(e.package),
-            err_type: Set(e.err_type.to_string()),
-            message: Set(e.message),
-            path: Set(e.path),
-            tree: Set(self.tree.clone()),
-            branch: Set(self.branch.clone()),
-            id: NotSet,
-        });
-        replace_many(iter).exec(&self.conn).await?;
-        Ok(())
-    }
-
-    pub async fn add_package(
-        &self,
-        pkg: Package,
-        context: Context,
-        pkg_changes: Vec<Change>,
-    ) -> Result<()> {
+    pub async fn add_package(&self, pkg_meta: Meta, pkg_changes: Vec<Change>) -> Result<()> {
+        let (pkg, context, errors) = pkg_meta;
         let txn = self.conn.begin().await?;
         let db = &txn;
 
@@ -359,6 +357,20 @@ impl AbbsDb {
         helper(pkg.package_breaks, "PKGBREAK", pkg_name, db).await?;
         helper(pkg.package_configs, "PKGCONFIG", pkg_name, db).await?;
 
+        // package_errors
+        if !errors.is_empty() {
+            let iter = errors.into_iter().map(|e| package_errors::ActiveModel {
+                package: Set(e.package),
+                err_type: Set(e.err_type.to_string()),
+                message: Set(e.message),
+                path: Set(e.path),
+                tree: Set(self.tree.clone()),
+                branch: Set(self.branch.clone()),
+                id: NotSet,
+            });
+            replace_many(iter).exec(db).await?;
+        }
+
         txn.commit().await?;
         Ok(())
     }
@@ -441,8 +453,7 @@ impl AbbsDb {
             };
 
             for info in info {
-                let new_order =
-                    skip_none!(testing.get(&skip_error!(Oid::from_str(&info.commit_id))));
+                let new_order = skip_none!(testing.get(&info.commit_id));
 
                 let db_order = PackageTesting::find()
                     .filter(package_testing::Column::Package.eq(info.pkg_name.clone()))
@@ -461,7 +472,7 @@ impl AbbsDb {
                         defines_path: info.defines_path,
                         branch: branch.clone(),
                         tree: repo.tree.clone(),
-                        commit: info.commit_id,
+                        commit: info.commit_id.to_string(),
                     }
                     .replace(&self.conn)
                     .await?;
