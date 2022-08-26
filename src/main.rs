@@ -1,7 +1,7 @@
 use abbs_meta::{
+    config::{Config, Global, Repo},
     db::{abbs::AbbsDb, commits::CommitDb},
     git::Repository,
-    Config,
 };
 use anyhow::Result;
 use itertools::Itertools;
@@ -12,11 +12,23 @@ use tracing::info;
 async fn main() -> Result<()> {
     init_log();
 
-    let config = Config::from_file("config.toml")?;
-    let repo = &(Repository::try_from(&config)?);
-    let commit_db = &(CommitDb::open(&config.commits_db_path).await?);
-    let abbs_db = &(AbbsDb::open(&config).await?);
+    let Config {
+        ref global,
+        repo: ref repos,
+    } = Config::from_file("config.toml")?;
 
+    for repo in repos {
+        info!("scan: {}/{}", repo.name, repo.branch);
+        do_scan_and_update(global, repo).await?;
+    }
+
+    Ok(())
+}
+
+pub async fn do_scan_and_update(global_config: &Global, repo_config: &Repo) -> Result<()> {
+    let repo = &(Repository::open(global_config, repo_config)?);
+    let commit_db = &(CommitDb::open(&global_config.commits_db_path).await?);
+    let abbs_db = &(AbbsDb::open(global_config, repo_config).await?);
     abbs_db
         .update_testing_branch(commit_db, repo, &HashSet::new())
         .await?;
@@ -28,8 +40,14 @@ async fn main() -> Result<()> {
         .into_iter()
         .map(|(pkg, _, _)| pkg.name)
         .collect_vec();
-    info!("delete {} packages: {}",deleted.len(),deleted.join(" "));
-    info!("update {} packages",updated.len());
+    let sep = if !deleted.is_empty() { ":" } else { "" };
+    info!(
+        "delete {} packages{} {}",
+        deleted.len(),
+        sep,
+        deleted.join(" ")
+    );
+    info!("update {} packages", updated.len());
     abbs_db.delete_packages(deleted).await?;
 
     let len = updated.len();

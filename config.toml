@@ -1,7 +1,9 @@
+[global]
 abbs_path = "/tmp/aosc-os-abbs"
 commits_db_path = "/dev/shm/commits.sqlite"
 abbs_db_path = "/dev/shm/abbs.sqlite"
 
+[[repo]]
 branch = "stable"
 category = "base"
 priority = 0

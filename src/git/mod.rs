@@ -1,4 +1,4 @@
-use crate::Config;
+use crate::config::{Global, Repo};
 use anyhow::{Context, Result};
 use git2::{Blob, Commit, Error, Oid, Repository as Git2Repository, TreeWalkResult};
 use std::path::{Path, PathBuf};
@@ -31,32 +31,32 @@ impl TryFrom<&SyncRepository> for Repository {
     type Error = git2::Error;
 
     fn try_from(repo: &SyncRepository) -> Result<Self, Self::Error> {
-        Self::open(&repo.repo_path, &repo.tree, &repo.branch)
-    }
-}
-
-impl TryFrom<&Config> for Repository {
-    type Error = anyhow::Error;
-
-    fn try_from(config: &Config) -> Result<Self, Self::Error> {
-        let repo = Repository::open(&config.abbs_path, &config.name, &config.branch)?;
-        Ok(repo)
+        Self::open_inner(&repo.repo_path, &repo.tree, &repo.branch)
     }
 }
 
 impl Repository {
-    pub fn open<P: AsRef<Path>, S: AsRef<str>>(
-        path: P,
-        tree: S,
-        branch: S,
+    pub fn open(
+        global_config: &Global,
+        repo_config: &Repo,
     ) -> std::result::Result<Repository, git2::Error> {
-        let repo = Git2Repository::open(path.as_ref())?;
-        repo.find_branch(branch.as_ref(), git2::BranchType::Local)?;
+        let Repo { branch, name, .. } = &repo_config;
+        let abbs_path = PathBuf::from(&global_config.abbs_path);
+        Self::open_inner(&abbs_path, name, branch)
+    }
+
+    fn open_inner(
+        abbs_path: &Path,
+        tree: &str,
+        branch: &str,
+    ) -> std::result::Result<Repository, git2::Error> {
+        let repo = Git2Repository::open(abbs_path)?;
+        repo.find_branch(branch, git2::BranchType::Local)?;
         Ok(Repository {
-            tree: tree.as_ref().to_string(),
-            repo_path: PathBuf::from(path.as_ref()),
+            tree: tree.into(),
+            repo_path: PathBuf::from(abbs_path),
             repo,
-            branch: branch.as_ref().to_string(),
+            branch: branch.into(),
         })
     }
 

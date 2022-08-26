@@ -7,9 +7,19 @@ use toml;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
+    pub global: Global,
+    pub repo: Vec<Repo>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Global {
     pub abbs_path: String,
     pub commits_db_path: String,
     pub abbs_db_path: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Repo {
     pub branch: String,
     pub priority: i32,
     pub category: String,

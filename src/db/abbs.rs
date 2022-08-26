@@ -4,11 +4,11 @@ use super::entities::{
     package_spec, package_testing, package_versions, packages, prelude::*, tree_branches, trees,
 };
 use super::{exec, replace_many, InstertExt};
+use crate::config::{Global, Repo};
 use crate::db::CreateTable;
 use crate::git::Repository;
 use crate::package::Meta;
 use crate::skip_none;
-use crate::Config;
 use abbs_meta_tree::Package;
 use anyhow::{bail, Result};
 use git2::Oid;
@@ -51,16 +51,16 @@ pub struct PackageError {
 }
 
 impl AbbsDb {
-    pub async fn open(config: &Config) -> Result<Self> {
-        let Config {
-            priority,
-            abbs_db_path,
+    pub async fn open(global_config: &Global, repo_config: &Repo) -> Result<Self> {
+        let abbs_db_path = &global_config.abbs_db_path;
+        let Repo {
             branch,
+            priority,
             category,
             name,
             url,
-            ..
-        } = config;
+        } = repo_config;
+
         let conn = Database::connect(format!("sqlite://{abbs_db_path}?mode=rwc")).await?;
 
         PackageDependencies.create_table(&conn).await?;

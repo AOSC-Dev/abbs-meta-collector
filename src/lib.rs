@@ -2,7 +2,6 @@ pub mod config;
 pub mod db;
 pub mod git;
 pub mod package;
-pub use config::Config;
 
 macro_rules! skip_error {
     ($res:expr) => {
