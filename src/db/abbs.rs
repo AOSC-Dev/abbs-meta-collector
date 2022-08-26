@@ -59,6 +59,7 @@ impl AbbsDb {
             category,
             name,
             url,
+            ..
         } = repo_config;
 
         let conn = Database::connect(format!("sqlite://{abbs_db_path}?mode=rwc")).await?;

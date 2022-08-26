@@ -1,4 +1,4 @@
-use crate::config::{Global, Repo};
+use crate::config::Repo;
 use anyhow::{Context, Result};
 use git2::{Blob, Commit, Error, Oid, Repository as Git2Repository, TreeWalkResult};
 use std::path::{Path, PathBuf};
@@ -36,12 +36,9 @@ impl TryFrom<&SyncRepository> for Repository {
 }
 
 impl Repository {
-    pub fn open(
-        global_config: &Global,
-        repo_config: &Repo,
-    ) -> std::result::Result<Repository, git2::Error> {
+    pub fn open(repo_config: &Repo) -> std::result::Result<Repository, git2::Error> {
         let Repo { branch, name, .. } = &repo_config;
-        let abbs_path = PathBuf::from(&global_config.abbs_path);
+        let abbs_path = PathBuf::from(&repo_config.repo_path);
         Self::open_inner(&abbs_path, name, branch)
     }
 
