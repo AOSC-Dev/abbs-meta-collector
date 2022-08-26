@@ -16,12 +16,12 @@ use sea_orm::sea_query::Query;
 use sea_orm::ActiveValue::NotSet;
 use sea_orm::{ActiveModelTrait, Database, IntoActiveModel, QueryOrder, TransactionTrait};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
+use tracing::debug;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thread_local::ThreadLocal;
-use tracing::info;
 use tracing::log::warn;
 use FileStatus::*;
 
@@ -251,7 +251,7 @@ impl CommitDb {
         Ok(History::find()
             .filter(history::Column::Tree.eq(tree.to_string()))
             .filter(history::Column::Branch.eq(branch.to_string()))
-            .order_by_asc(history::Column::Timestamp)
+            .order_by_desc(history::Column::Timestamp)
             .all(&self.conn)
             .await?)
     }
@@ -351,7 +351,7 @@ impl CommitDb {
             })
             .flatten()
             .collect();
-        info!("{:?}", diff);
+        debug!("from: {from:?}  to: {to:?}");
 
         let deleted = diff
             .iter()

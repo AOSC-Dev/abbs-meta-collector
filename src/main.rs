@@ -28,6 +28,8 @@ async fn main() -> Result<()> {
         .into_iter()
         .map(|(pkg, _, _)| pkg.name)
         .collect_vec();
+    info!("delete {} packages: {}",deleted.len(),deleted.join(" "));
+    info!("update {} packages",updated.len());
     abbs_db.delete_packages(deleted).await?;
 
     let len = updated.len();
