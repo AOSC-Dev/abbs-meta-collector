@@ -27,6 +27,6 @@ thread_local = "1"
 async-trait = "0.1"
 
 [profile.release]
-#lto = "fat"
-#codegen-units = 1
+lto = "fat"
+codegen-units = 1
 panic = "abort"
