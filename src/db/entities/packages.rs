@@ -13,6 +13,7 @@ pub struct Model {
     pub pkg_section: String,
     pub directory: String,
     pub description: String,
+    pub spec_path: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

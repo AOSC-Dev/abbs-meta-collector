@@ -74,7 +74,6 @@ impl AbbsDb {
         PackageChanges.create_table(&conn).await?;
         PackageErrors.create_table(&conn).await?;
         PackageTesting.create_table(&conn).await?;
-        History.create_table(&conn).await?;
 
         exec(
             &conn,
@@ -240,6 +239,7 @@ impl AbbsDb {
             pkg_section: pkg.pkg_section.clone(),
             directory: pkg.directory.clone(),
             description: pkg.description.clone(),
+            spec_path: pkg.spec_path.clone(),
         }
         .replace(&txn)
         .await?;
@@ -418,6 +418,13 @@ impl AbbsDb {
             .filter(package_errors::Column::Package.eq(pkg_name.to_string()))
             .filter(package_errors::Column::Tree.eq(self.tree.to_string()))
             .filter(package_errors::Column::Branch.eq(self.branch.to_string()))
+            .exec(db)
+            .await?;
+
+        Delete::many(PackageTesting)
+            .filter(package_testing::Column::Package.eq(pkg_name.to_string()))
+            .filter(package_testing::Column::Tree.eq(self.tree.to_string()))
+            .filter(package_testing::Column::Branch.eq(self.branch.to_string()))
             .exec(db)
             .await?;
 
