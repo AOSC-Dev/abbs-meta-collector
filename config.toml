@@ -9,3 +9,11 @@ priority = 0
 name = "aosc-os-abbs"
 url = "https://github.com/AOSC-Dev/aosc-os-abbs/"
 repo_path = "/tmp/aosc-os-abbs"
+
+[[repo]]
+branch = "stable"
+category = "base"
+priority = 0
+name = "aosc-os-bsps"
+url = "https://github.com/AOSC-Dev/aosc-os-bsps"
+repo_path = "/tmp/aosc-os-bsps"
