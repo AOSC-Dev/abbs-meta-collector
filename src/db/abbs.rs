@@ -96,6 +96,7 @@ impl AbbsDb {
                 directory,
                 description,
                 version,
+                spec_path,
                 (
                     (
                         CASE
