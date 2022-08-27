@@ -388,31 +388,22 @@ impl CommitDb {
             .into_iter()
             .filter_map(|(commit_id, pkg_version, _, _)| {
                 let commit = repo.find_commit(commit_id).ok()?;
-
-                let githash = commit_id.to_string();
                 let message = commit.message()?.to_string();
                 let maintainer = commit.committer();
-                let maintainer_name = maintainer.name()?.to_string();
-                let maintainer_email = maintainer.email()?.to_string();
-                let timestamp = commit.time().seconds();
-                let version = pkg_version;
-                let urgency = message
-                    .find("security")
-                    .map_or("medium", |_| "high")
-                    .to_string();
-                let pkg_name = pkg_name.to_string();
-                let branch = repo.get_repo_branch().to_string();
 
                 let change = Change {
-                    pkg_name,
-                    version,
-                    branch,
-                    urgency,
-                    message,
-                    githash,
-                    maintainer_name,
-                    maintainer_email,
-                    timestamp,
+                    pkg_name: pkg_name.to_string(),
+                    version: pkg_version,
+                    branch: repo.get_repo_branch().to_string(),
+                    urgency: message
+                        .find("security")
+                        .map_or("medium", |_| "high")
+                        .to_string(),
+                    message: commit.message()?.to_string(),
+                    githash: commit_id.to_string(),
+                    maintainer_name: maintainer.name()?.to_string(),
+                    maintainer_email: maintainer.email()?.to_string(),
+                    timestamp: commit.time().seconds(),
                 };
                 Some(change)
             })
