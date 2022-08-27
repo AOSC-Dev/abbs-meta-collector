@@ -5,7 +5,7 @@ abbs_db_path = "/dev/shm/abbs.sqlite"
 [[repo]]
 branch = "stable"
 category = "base"
-priority = 0
+priority = 1
 name = "aosc-os-abbs"
 url = "https://github.com/AOSC-Dev/aosc-os-abbs/"
 repo_path = "/tmp/aosc-os-abbs"
