@@ -168,49 +168,20 @@ impl AbbsDb {
         let existing = Packages::find_by_id(pkg.name.clone()).one(db).await?;
 
         if let Some(existing) = existing {
-            async fn update_duplicate(
-                pkg: &Package,
-                existing: &packages::Model,
-                tree: &str,
-                db: &impl ConnectionTrait,
-            ) -> Result<()> {
-                package_duplicate::Model {
-                    package: pkg.name.clone(),
-                    tree: tree.to_string(),
-                    category: pkg.category.clone(),
-                    section: pkg.section.clone(),
-                    directory: pkg.directory.clone(),
-                }
-                .insert_or_ignore(db)
-                .await?;
-
-                package_duplicate::Model {
-                    package: pkg.name.clone(),
-                    tree: existing.tree.clone(),
-                    category: existing.category.clone(),
-                    section: existing.section.clone(),
-                    directory: existing.directory.clone(),
-                }
-                .insert_or_ignore(db)
-                .await?;
-
-                Ok(())
-            }
+            let name = &pkg.name;
+            let existing_tree = &existing.tree;
+            let existing_category = &existing.category;
+            let existing_section = &existing.section;
+            let existing_directory = &existing.directory;
+            let tree = &self.tree;
+            let category = &pkg.category;
+            let section = &pkg.section;
+            let directory = &pkg.directory;
 
             if existing.tree != self.tree {
                 warn!(
-                    "duplicate package \"{}\" found in different trees  {}/{}-{}/{} and {}/{}-{}/{}",
-                    pkg.name,
-                    existing.tree,
-                    existing.category,
-                    existing.section,
-                    existing.directory,
-                    self.tree,
-                    pkg.category,
-                    pkg.section,
-                    pkg.directory
+                    "duplicate package \"{name}\" found in different trees {existing_tree}/{existing_category}-{existing_section}/{existing_directory} and {tree}/{category}-{section}/{directory}",
                 );
-
                 update_duplicate(&pkg, &existing, &self.tree, db).await?;
             }
 
@@ -218,16 +189,8 @@ impl AbbsDb {
                 != (&existing.category, &existing.section, &existing.directory)
             {
                 warn!(
-                    "duplicate package \"{}\" found in {}-{}/{} and {}-{}/{}",
-                    pkg.name,
-                    existing.category,
-                    existing.section,
-                    existing.directory,
-                    pkg.category,
-                    pkg.section,
-                    pkg.directory
+                    "duplicate package \"{name}\" found in {existing_category}-{existing_section}/{existing_directory} and {category}-{section}/{directory}",
                 );
-
                 update_duplicate(&pkg, &existing, &self.tree, db).await?;
             }
         }
@@ -276,6 +239,7 @@ impl AbbsDb {
                 maintainer_name: change.maintainer_name,
                 maintainer_email: change.maintainer_email,
                 timestamp: change.timestamp,
+                tree: change.tree,
             }
             .into_active_model()
         });
@@ -320,43 +284,15 @@ impl AbbsDb {
             .await?;
 
         let pkg_name = &pkg.name;
-        type PkgDep = HashMap<String, Vec<(String, Option<String>, Option<String>)>>;
-        async fn helper(
-            pkgdep: PkgDep,
-            relationship: &str,
-            pkg_name: &str,
-            db: &impl ConnectionTrait,
-        ) -> Result<()> {
-            for (architecture, v) in pkgdep {
-                let architecture = if architecture == "default" {
-                    "".into()
-                } else {
-                    architecture
-                };
-                for (dependency, relop, version) in v.clone() {
-                    package_dependencies::Model {
-                        package: pkg_name.to_string(),
-                        dependency,
-                        relop,
-                        version,
-                        architecture: architecture.clone(),
-                        relationship: relationship.to_string(),
-                    }
-                    .replace(db)
-                    .await?;
-                }
-            }
-            Ok(())
-        }
 
-        helper(pkg.dependencies, "PKGDEP", pkg_name, db).await?;
-        helper(pkg.build_dependencies, "BUILDDEP", pkg_name, db).await?;
-        helper(pkg.package_suggests, "PKGSUG", pkg_name, db).await?;
-        helper(pkg.package_provides, "PKGPROV", pkg_name, db).await?;
-        helper(pkg.package_recommands, "PKGRECOM", pkg_name, db).await?;
-        helper(pkg.package_replaces, "PKGREP", pkg_name, db).await?;
-        helper(pkg.package_breaks, "PKGBREAK", pkg_name, db).await?;
-        helper(pkg.package_configs, "PKGCONFIG", pkg_name, db).await?;
+        add_dependencies(pkg.dependencies, "PKGDEP", pkg_name, db).await?;
+        add_dependencies(pkg.build_dependencies, "BUILDDEP", pkg_name, db).await?;
+        add_dependencies(pkg.package_suggests, "PKGSUG", pkg_name, db).await?;
+        add_dependencies(pkg.package_provides, "PKGPROV", pkg_name, db).await?;
+        add_dependencies(pkg.package_recommands, "PKGRECOM", pkg_name, db).await?;
+        add_dependencies(pkg.package_replaces, "PKGREP", pkg_name, db).await?;
+        add_dependencies(pkg.package_breaks, "PKGBREAK", pkg_name, db).await?;
+        add_dependencies(pkg.package_configs, "PKGCONFIG", pkg_name, db).await?;
 
         // package_errors
         if !errors.is_empty() {
@@ -551,4 +487,61 @@ fn scan_branch(
         .enumerate()
         .filter_map(|(i, x)| Some((x.ok()?, i)))
         .collect())
+}
+
+async fn update_duplicate(
+    pkg: &Package,
+    existing: &packages::Model,
+    tree: &str,
+    db: &impl ConnectionTrait,
+) -> Result<()> {
+    package_duplicate::Model {
+        package: pkg.name.clone(),
+        tree: tree.to_string(),
+        category: pkg.category.clone(),
+        section: pkg.section.clone(),
+        directory: pkg.directory.clone(),
+    }
+    .insert_or_ignore(db)
+    .await?;
+
+    package_duplicate::Model {
+        package: pkg.name.clone(),
+        tree: existing.tree.clone(),
+        category: existing.category.clone(),
+        section: existing.section.clone(),
+        directory: existing.directory.clone(),
+    }
+    .insert_or_ignore(db)
+    .await?;
+
+    Ok(())
+}
+
+type PkgDep = HashMap<String, Vec<(String, Option<String>, Option<String>)>>;
+async fn add_dependencies(
+    pkgdep: PkgDep,
+    relationship: &str,
+    pkg_name: &str,
+    db: &impl ConnectionTrait,
+) -> Result<()> {
+    for (architecture, v) in pkgdep {
+        let architecture = (architecture == "default")
+            .then_some("")
+            .unwrap_or(architecture.as_str());
+
+        for (dependency, relop, version) in v.clone() {
+            package_dependencies::Model {
+                package: pkg_name.into(),
+                dependency,
+                relop,
+                version,
+                architecture: architecture.into(),
+                relationship: relationship.into(),
+            }
+            .replace(db)
+            .await?;
+        }
+    }
+    Ok(())
 }
