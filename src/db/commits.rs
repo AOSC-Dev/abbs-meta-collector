@@ -35,6 +35,7 @@ pub struct CommitDb {
 pub struct Change {
     pub pkg_name: String,
     pub version: String,
+    pub tree: String,
     pub branch: String,
     pub urgency: String,
     pub message: String,
@@ -379,68 +380,55 @@ impl CommitDb {
         repo: &Repository,
         pkg_name: &str,
     ) -> Result<Vec<Change>> {
-        let changes = self
-            .get_commits_by_packages(&repo.tree, &repo.branch, pkg_name)
-            .await
-            .unwrap();
+        let changes = self.get_commits_by_packages(pkg_name).await.unwrap();
 
         let changes = changes
             .into_iter()
-            .filter_map(|(commit_id, pkg_version, _, _)| {
-                let commit = repo.find_commit(commit_id).ok()?;
-                let message = commit.message()?.to_string();
-                let maintainer = commit.committer();
+            .filter_map(
+                |commit::Model {
+                     pkg_name,
+                     pkg_version,
+                     tree,
+                     branch,
+                     commit_id,
+                     ..
+                 }| {
+                    let commit = repo.find_commit(Oid::from_str(&commit_id).ok()?).ok()?;
+                    let message = commit.message()?.to_string();
+                    let maintainer = commit.committer();
+                    let branch = branch.strip_prefix("origin/").unwrap_or(branch.as_str());
 
-                let change = Change {
-                    pkg_name: pkg_name.to_string(),
-                    version: pkg_version,
-                    branch: repo.get_repo_branch().to_string(),
-                    urgency: message
-                        .find("security")
-                        .map_or("medium", |_| "high")
-                        .to_string(),
-                    message: commit.message()?.to_string(),
-                    githash: commit_id.to_string(),
-                    maintainer_name: maintainer.name()?.to_string(),
-                    maintainer_email: maintainer.email()?.to_string(),
-                    timestamp: commit.time().seconds(),
-                };
-                Some(change)
-            })
+                    let change = Change {
+                        pkg_name,
+                        version: pkg_version,
+                        tree,
+                        branch:branch.into(),
+                        urgency: message
+                            .find("security")
+                            .map_or("medium", |_| "high")
+                            .to_string(),
+                        message: commit.message()?.to_string(),
+                        githash: commit_id,
+                        maintainer_name: maintainer.name()?.to_string(),
+                        maintainer_email: maintainer.email()?.to_string(),
+                        timestamp: commit.time().seconds(),
+                    };
+                    Some(change)
+                },
+            )
             .collect();
 
         Ok(changes)
     }
 
     /// commits are sorted by timestamp in descending order, return Vec<(commit_id,pkg_version,spec_path,defines_path)>
-    pub async fn get_commits_by_packages(
-        &self,
-        tree: &str,
-        branch: &str,
-        pkg_name: &str,
-    ) -> Result<Vec<(Oid, String, String, String)>> {
+    pub async fn get_commits_by_packages(&self, pkg_name: &str) -> Result<Vec<commit::Model>> {
         let v = Commit::find()
             .order_by_desc(commit::Column::CommitTime)
             .filter(commit::Column::PkgName.eq(pkg_name.to_string()))
-            .filter(commit::Column::Tree.eq(tree.to_string()))
-            .filter(commit::Column::Branch.eq(branch.to_string()))
             .all(&self.conn)
             .await?;
-
-        let mut map = indexmap::IndexMap::new();
-
-        for commit in v {
-            let oid = Oid::from_str(&commit.commit_id)?;
-            map.insert(
-                oid,
-                (commit.pkg_version, commit.spec_path, commit.defines_path),
-            );
-        }
-
-        Ok(map
-            .into_iter()
-            .map(|(k, v)| (k, v.0, v.1, v.2))
-            .collect_vec())
+        Ok(v)
     }
 
     pub async fn get_commits_by_tree_and_branch(

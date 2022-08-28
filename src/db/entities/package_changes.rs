@@ -11,6 +11,7 @@ pub struct Model {
     pub githash: String,
 
     pub version: String,
+    pub tree: String,
     pub branch: String,
     pub urgency: String,
     pub message: String,
