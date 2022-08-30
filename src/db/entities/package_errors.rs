@@ -11,6 +11,8 @@ pub struct Model {
     pub path: String,
     pub tree: String,
     pub branch: String,
+    pub line: Option<u32>,
+    pub col: Option<u32>,
     #[sea_orm(primary_key, auto_increment = true)]
     pub id: u32,
 }

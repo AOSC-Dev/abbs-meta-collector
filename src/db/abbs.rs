@@ -48,6 +48,8 @@ pub struct PackageError {
     pub path: String,
     pub message: String,
     pub err_type: ErrorType,
+    pub line: Option<u32>,
+    pub col: Option<u32>,
 }
 
 impl AbbsDb {
@@ -303,6 +305,8 @@ impl AbbsDb {
                 path: Set(e.path),
                 tree: Set(self.tree.clone()),
                 branch: Set(self.branch.clone()),
+                line: Set(e.line),
+                col: Set(e.col),
                 id: NotSet,
             });
             replace_many(iter).exec(db).await?;

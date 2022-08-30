@@ -402,7 +402,7 @@ impl CommitDb {
                         pkg_name,
                         version: pkg_version,
                         tree,
-                        branch:branch.into(),
+                        branch: branch.into(),
                         urgency: message
                             .find("security")
                             .map_or("medium", |_| "high")

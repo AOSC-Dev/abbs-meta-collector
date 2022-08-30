@@ -68,6 +68,8 @@ pub fn scan_package(
                 path,
                 message: e.to_string(),
                 err_type: ErrorType::Package,
+                line: None,
+                col: None,
             });
             (None, errors)
         }
@@ -94,6 +96,8 @@ fn parse_spec_and_defines(
                 path: spec_path.to_str()?.to_string(),
                 message: e.to_string(),
                 err_type: ErrorType::Parse,
+                line: Some(e.line as u32),
+                col: Some(e.col as u32),
             })
         });
         errors.extend(iter);
@@ -108,6 +112,8 @@ fn parse_spec_and_defines(
                 path: defines_path.to_str()?.to_string(),
                 message: e.to_string(),
                 err_type: ErrorType::Parse,
+                line: Some(e.line as u32),
+                col: Some(e.col as u32),
             })
         });
         errors.extend(iter);

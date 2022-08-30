@@ -10,7 +10,7 @@ pub struct Model {
     pub tree: String,
     pub branch: String,
     #[sea_orm(primary_key, auto_increment = true)]
-    pub id: u32,
+    id: u32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter)]
