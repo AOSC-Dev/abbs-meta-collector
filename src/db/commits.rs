@@ -4,7 +4,7 @@ use super::{replace_many, CreateTable};
 use crate::git::commit::FileStatus;
 use crate::git::{Repository, SyncRepository};
 use crate::package::{
-    defines_path_to_spec_path, scan_package, scan_packages, spec_path_to_defines_path, Meta,
+    defines_path_to_spec_path, path_to_defines_path, scan_package, scan_packages, Meta,
 };
 use crate::skip_error;
 use anyhow::{bail, Result};
@@ -12,12 +12,13 @@ use git2::Oid;
 use indexmap::IndexSet;
 use itertools::Itertools;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
-use sea_orm::sea_query::Query;
 use sea_orm::ActiveValue::NotSet;
-use sea_orm::{ActiveModelTrait, Database, IntoActiveModel, QueryOrder, TransactionTrait};
+use sea_orm::{
+    ActiveModelTrait, Database, IntoActiveModel, QueryOrder, QuerySelect, TransactionTrait,
+};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thread_local::ThreadLocal;
@@ -53,13 +54,6 @@ pub struct CommitInfo {
     pub pkg_version: String,
     pub defines_path: String,
     pub spec_path: String,
-}
-
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct CommitPathInfo {
-    pub commit_id: Oid,
-    pub commit_time: i64,
-    pub path: String,
     pub status: FileStatus,
 }
 
@@ -79,7 +73,7 @@ impl CommitDb {
         repo: &Repository,
         branch: &str,
         commits: impl IntoParallelIterator<Item = Oid>,
-    ) -> Result<(Vec<CommitInfo>, Vec<CommitPathInfo>)> {
+    ) -> Result<Vec<CommitInfo>> {
         let db = self.conn.begin().await?;
         let tree = &repo.tree;
 
@@ -93,12 +87,12 @@ impl CommitDb {
                 let repo = local_repo.get_or(|| sync_repo.try_into().unwrap());
                 let commit_id = *commit_id;
                 let commit = match file_status {
-                    Added | Modified => repo.find_commit(commit_id).ok()?,
+                    Added | Modified => commit_id,
                     Deleted => {
                         let commit = repo.find_commit(commit_id).ok()?;
                         let parents: Vec<_> = commit.parents().collect();
                         match parents.len() {
-                            1 | 2 => parents[0].clone(),
+                            1 | 2 => parents[0].id(),
                             n => {
                                 warn!("{n} parents in commit {commit:?}");
                                 return None;
@@ -107,7 +101,6 @@ impl CommitDb {
                     }
                     _ => return None,
                 };
-                let tree = commit.tree().ok()?;
 
                 let generate_package_commit_info = |defines_path: &PathBuf| {
                     let spec_path = defines_path_to_spec_path(defines_path).ok()?;
@@ -122,45 +115,19 @@ impl CommitDb {
                         pkg_version: pkg.version,
                         defines_path: defines_path.to_str()?.to_string(),
                         spec_path: spec_path.to_str()?.to_string(),
+                        status: *file_status,
                     })
                 };
 
-                let file_name = file_path.file_name()?.to_str()?;
-                match file_name {
-                    "defines" => Some(vec![generate_package_commit_info(file_path)?]),
-                    "spec" => {
-                        return Some(
-                            spec_path_to_defines_path(repo, commit_id, file_path)?
-                                .iter()
-                                .filter_map(|path| generate_package_commit_info(path))
-                                .collect(),
-                        );
-                    }
-                    _ => {
-                        for path in file_path.ancestors() {
-                            let mut path = path.to_path_buf();
-                            path.push(Path::new("defines"));
-                            if tree.get_path(&path).is_ok() {
-                                return Some(vec![generate_package_commit_info(&path)?]);
-                            }
-                        }
-                        None
-                    }
-                }
+                path_to_defines_path(repo, commit, file_path)
+                    .ok()
+                    .map(|path| {
+                        path.iter()
+                            .filter_map(|path| generate_package_commit_info(path))
+                            .collect_vec()
+                    })
             })
             .flatten()
-            .collect();
-
-        let commit_path_info: Vec<_> = result
-            .iter()
-            .filter_map(|(commit_id, time, file_path, file_status)| -> Option<_> {
-                Some(CommitPathInfo {
-                    path: file_path.to_str()?.to_string(),
-                    commit_id: *commit_id,
-                    commit_time: time.seconds(),
-                    status: *file_status,
-                })
-            })
             .collect();
 
         let iters = commit_info
@@ -174,6 +141,7 @@ impl CommitDb {
                      pkg_version,
                      defines_path,
                      spec_path,
+                     status,
                  }| {
                     commit::Model {
                         pkg_name,
@@ -184,6 +152,7 @@ impl CommitDb {
                         branch: branch.to_string(),
                         commit_id: commit_id.to_string(),
                         commit_time,
+                        status: status.to_string(),
                     }
                     .into_active_model()
                 },
@@ -194,7 +163,7 @@ impl CommitDb {
         }
 
         db.commit().await?;
-        Ok((commit_info, commit_path_info))
+        Ok(commit_info)
     }
 
     pub async fn update_package_testing(
@@ -236,7 +205,7 @@ impl CommitDb {
                 repo.get_commits_by_range(from, to)?.into_iter().collect();
 
             let ahead = &testing_commits - &stable_commits;
-            let (info, _) = self.add_commits(repo, testing, ahead).await?;
+            let info = self.add_commits(repo, testing, ahead).await?;
 
             self.insert_history(&repo.tree, testing, to).await?;
 
@@ -261,16 +230,9 @@ impl CommitDb {
         Ok(History::find()
             .filter(history::Column::Tree.eq(tree.to_string()))
             .filter(history::Column::Branch.eq(branch.to_string()))
-            .filter(
-                history::Column::Timestamp.in_subquery(
-                    Query::select()
-                        .from(history::Entity)
-                        .expr(history::Column::Timestamp.max())
-                        .and_where(history::Column::Tree.eq(tree.to_string()))
-                        .and_where(history::Column::Branch.eq(branch.to_string()))
-                        .to_owned(),
-                ),
-            )
+            .column_as(history::Column::Timestamp.max(), history::Column::Timestamp)
+            .group_by(history::Column::Tree)
+            .group_by(history::Column::Branch)
             .one(&self.conn)
             .await?)
     }
@@ -298,7 +260,7 @@ impl CommitDb {
 
         let to = repo.get_branch_oid(&repo.branch)?;
         let commits = repo.get_commits_by_range(from, to)?;
-        let (result, _) = self.add_commits(repo, &repo.branch, commits).await?;
+        let result = self.add_commits(repo, &repo.branch, commits).await?;
 
         self.insert_history(&repo.tree, &repo.branch, to).await?;
 
@@ -326,29 +288,21 @@ impl CommitDb {
         let diff: HashSet<_> = walk_diff_tree(repo, from, Some(to))?
             .into_iter()
             .filter_map(|(path, status)| {
-                let pathbuf = PathBuf::from_str(&path).ok()?;
-                match path {
-                    _ if path.ends_with("spec") => {
-                        let commit = if status == FileStatus::Deleted {
-                            from?
-                        } else {
-                            to
-                        };
-                        let defines_path = spec_path_to_defines_path(repo, commit, &pathbuf)?;
-                        let mut res = vec![];
-                        for defines in defines_path {
-                            res.push((pathbuf.clone(), defines, status))
-                        }
+                let path = PathBuf::from_str(&path).ok()?;
+                let commit = if status == FileStatus::Deleted {
+                    from?
+                } else {
+                    to
+                };
 
-                        Some(res)
-                    }
-                    _ if path.ends_with("defines") => Some(vec![(
-                        defines_path_to_spec_path(&pathbuf).ok()?,
-                        pathbuf,
-                        status,
-                    )]),
-                    _ => None,
-                }
+                path_to_defines_path(repo, commit, &path)
+                    .ok()
+                    .map(|defines| {
+                        defines.into_iter().filter_map(move |defines| {
+                            let spec = defines_path_to_spec_path(&defines).ok()?;
+                            Some((spec, defines, status))
+                        })
+                    })
             })
             .flatten()
             .collect();
@@ -380,7 +334,7 @@ impl CommitDb {
         repo: &Repository,
         pkg_name: &str,
     ) -> Result<Vec<Change>> {
-        let changes = self.get_commits_by_packages(pkg_name).await.unwrap();
+        let changes = self.get_commits_by_packages(pkg_name).await?;
 
         let changes = changes
             .into_iter()

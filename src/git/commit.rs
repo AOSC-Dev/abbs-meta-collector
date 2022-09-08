@@ -1,6 +1,7 @@
 use super::{Repository, SyncRepository};
 use anyhow::Result;
 use git2::{Delta, Oid, Time};
+use itertools::Itertools;
 use rayon::prelude::*;
 use std::path::PathBuf;
 use thread_local::ThreadLocal;
@@ -54,16 +55,14 @@ impl Repository {
         let mut revwalk = self.repo.revwalk()?;
         revwalk.push(to)?;
 
-        let mut oids = vec![];
-
-        for oid in revwalk {
-            let oid = oid?;
-            if Some(oid) != from {
-                oids.push(oid);
-            } else {
-                break;
-            }
-        }
+        let oids = revwalk
+            .into_iter()
+            .map(|oid| {
+                let oid = oid.ok()?;
+                from.ne(&Some(oid)).then_some(oid)
+            })
+            .while_some()
+            .collect_vec();
 
         Ok(oids)
     }
@@ -91,24 +90,25 @@ impl Repository {
                     }
                 };
                 let parent_tree = parent_tree.as_ref();
-
                 let diff = repo
                     .get_git2repo()
                     .diff_tree_to_tree(parent_tree, Some(&commit.tree().ok()?), None)
                     .ok()?;
-
-                let mut v = vec![];
-                for delta in diff.deltas() {
-                    let new_file = delta.new_file();
-                    let path = new_file.path()?;
-                    v.push((
-                        commit.id(),
-                        commit.time(),
-                        path.to_path_buf(),
-                        delta.status().into(),
-                    ));
-                }
-                Some(v)
+                let changes = diff
+                    .deltas()
+                    .into_iter()
+                    .filter_map(|delta| {
+                        let new_file = delta.new_file();
+                        let path = new_file.path()?;
+                        Some((
+                            commit.id(),
+                            commit.time(),
+                            path.to_path_buf(),
+                            delta.status().into(),
+                        ))
+                    })
+                    .collect_vec();
+                Some(changes)
             })
             .flatten()
             .collect();
