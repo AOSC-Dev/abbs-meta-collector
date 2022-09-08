@@ -1,6 +1,8 @@
 [global]
-commits_db_path = "/dev/shm/commits.sqlite"
-abbs_db_path = "/dev/shm/abbs.sqlite"
+auto_clone_repo = true
+auto_update_repo = true
+commits_db_path = "/dev/shm/commits.db"
+abbs_db_path = "/dev/shm/abbs.db"
 
 [[repo]]
 branch = "stable"

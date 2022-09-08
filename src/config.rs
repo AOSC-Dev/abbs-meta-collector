@@ -15,6 +15,10 @@ pub struct Config {
 pub struct Global {
     pub commits_db_path: String,
     pub abbs_db_path: String,
+    #[serde(default)]
+    pub auto_update_repo: bool,
+    #[serde(default)]
+    pub auto_clone_repo: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
