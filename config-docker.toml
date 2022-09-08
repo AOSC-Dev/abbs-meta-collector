@@ -1,0 +1,21 @@
+[global]
+auto_clone_repo = true
+auto_update_repo = true
+commits_db_path = "/data/commits.db"
+abbs_db_path = "/data/abbs.db"
+
+[[repo]]
+branch = "stable"
+category = "base"
+priority = 1
+name = "aosc-os-abbs"
+url = "https://github.com/AOSC-Dev/aosc-os-abbs/"
+repo_path = "/aosc-os-abbs"
+
+[[repo]]
+branch = "stable"
+category = "base"
+priority = 0
+name = "aosc-os-bsps"
+url = "https://github.com/AOSC-Dev/aosc-os-bsps"
+repo_path = "/aosc-os-bsps"
