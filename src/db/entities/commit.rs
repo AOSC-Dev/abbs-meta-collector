@@ -18,6 +18,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub commit_id: String,
     pub commit_time: i64,
+    pub status: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter)]
