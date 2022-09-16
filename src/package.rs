@@ -157,11 +157,10 @@ pub fn spec_path_to_defines_path(
 
     let pkg_path = spec_path
         .parent()
-        .with_context(|| "The path {spec_path} doesn't have parent")?;
+        .with_context(|| format!("The path {} doesn't have parent", spec_path.display()))?;
     let res = walk(pkg_path)?
-        .iter()
+        .into_iter()
         .filter(|path| path.file_name() == Some(OsStr::new("defines")))
-        .cloned()
         .collect_vec();
     Ok(res)
 }
@@ -190,9 +189,9 @@ pub fn defines_path_to_spec_path(defines_path: &Path) -> Result<PathBuf> {
 pub fn path_to_defines_path(repo: &Repository, commit: Oid, path: &Path) -> Result<Vec<PathBuf>> {
     let file_name = path
         .file_name()
-        .with_context(|| "failed to convert {path:?} to str")?
+        .with_context(|| format!("failed to convert {} to str", path.display()))?
         .to_str()
-        .with_context(|| "failed to convert {path:?} to str")?;
+        .with_context(|| format!("failed to convert {} to str", path.display()))?;
 
     match file_name {
         "defines" => Ok(vec![path.to_path_buf()]),
@@ -200,13 +199,17 @@ pub fn path_to_defines_path(repo: &Repository, commit: Oid, path: &Path) -> Resu
         _ => {
             let tree = repo.find_commit(commit)?.tree()?;
             path.ancestors()
-                .filter_map(|path| {
+                .find_map(|path| {
                     let mut path = path.to_path_buf();
                     path.push(Path::new("defines"));
                     tree.get_path(&path).ok().map(|_| vec![path.to_path_buf()])
                 })
-                .next()
-                .with_context(|| "failed to find defines path at the ancestors of {path:?}")
+                .with_context(|| {
+                    format!(
+                        "failed to find defines path at the ancestors of {}",
+                        path.display()
+                    )
+                })
         }
     }
 }
