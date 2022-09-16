@@ -1,6 +1,4 @@
 [global]
-auto_clone_repo = true
-auto_update_repo = true
 commits_db_path = "/dev/shm/commits.db"
 abbs_db_path = "/dev/shm/abbs.db"
 
