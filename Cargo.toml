@@ -10,15 +10,12 @@ license = "MIT OR Apache-2.0"
 abbs-meta-apml = { git = "https://github.com/7rah/abbs-meta-rs" }
 abbs-meta-tree = { git = "https://github.com/7rah/abbs-meta-rs" }
 toml = "0.5"
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
 anyhow = "1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde_json = "1.0"
-git2 = { version = "0.15", default-features = false, features = [
-    "https",
-    "vendored-openssl"
-] }
+git2 = { version = "0.15", default-features = false }
 rayon = "1.5"
 sea-orm = { version = "0.9", features = [
     "sqlx-sqlite",
@@ -27,9 +24,9 @@ sea-orm = { version = "0.9", features = [
 async-std = { version = "1", features = ["attributes"] }
 itertools = "0.10"
 indexmap = "1.9"
-thread_local = "1"
 async-trait = "0.1"
 structopt = "0.3"
+thread_local = "1"
 
 [profile.release]
 lto = "fat"
