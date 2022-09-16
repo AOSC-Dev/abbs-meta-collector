@@ -4,9 +4,8 @@ use abbs_meta::{
     git::Repository,
 };
 use anyhow::Result;
-use git2::BranchType;
 use itertools::Itertools;
-use std::{collections::HashSet, path::Path};
+use std::collections::HashSet;
 use structopt::StructOpt;
 use tracing::info;
 
@@ -29,14 +28,7 @@ async fn main() -> Result<()> {
     } = Config::from_file(opt.config)?;
 
     for repo in repos {
-        if global.auto_clone_repo {
-            clone_repo(repo)?
-        }
-        if global.auto_update_repo {
-            update_repo(repo)?
-        }
-
-        info!("Scan {}/{}", repo.name, repo.branch);
+        info!("scan {}/{}", repo.name, repo.branch);
         do_scan_and_update(global, repo).await?;
     }
 
@@ -75,30 +67,6 @@ pub async fn do_scan_and_update(global_config: &Global, repo_config: &Repo) -> R
         abbs_db.add_package(pkg_meta, pkg_changes).await?;
         info!("{}/{} {}", i + 1, len, pkg_name);
     }
-
-    Ok(())
-}
-
-fn clone_repo(repo_config: &Repo) -> Result<()> {
-    let path = Path::new(&repo_config.repo_path);
-    if !path.exists() {
-        info!("Cloning into {}", &repo_config.name);
-        git2::Repository::clone(&repo_config.url, path)?;
-    }
-
-    Ok(())
-}
-
-fn update_repo(repo_config: &Repo) -> Result<()> {
-    let repo = git2::Repository::open(&repo_config.repo_path)?;
-    let branches = repo
-        .branches(Some(BranchType::Remote))?
-        .filter_map(|x| x.ok()?.0.name().ok()?.map(|x| x.to_string()))
-        .collect_vec();
-
-    let mut origin_remote = repo.find_remote("origin")?;
-    info!("Updating {}", &repo_config.name);
-    origin_remote.fetch(&branches, None, None)?;
 
     Ok(())
 }
