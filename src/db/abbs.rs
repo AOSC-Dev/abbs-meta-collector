@@ -1,9 +1,9 @@
 use super::commits::{Change, CommitDb};
 use super::entities::{
-    fts_packages, package_changes, package_dependencies, package_duplicate, package_errors,
-    package_spec, package_testing, package_versions, packages, prelude::*, tree_branches, trees,
+    package_changes, package_dependencies, package_duplicate, package_errors, package_spec,
+    package_testing, package_versions, packages, prelude::*, tree_branches, trees,
 };
-use super::{exec, replace_many, InstertExt};
+use super::{exec, InstertExt};
 use crate::config::{Global, Repo};
 use crate::db::CreateTable;
 use crate::git::Repository;
@@ -13,6 +13,7 @@ use abbs_meta_tree::Package;
 use anyhow::{bail, Result};
 use git2::Oid;
 use itertools::Itertools;
+use sea_orm::sea_query::OnConflict;
 use sea_orm::{entity::*, query::*};
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
@@ -48,8 +49,8 @@ pub struct PackageError {
     pub path: String,
     pub message: String,
     pub err_type: ErrorType,
-    pub line: Option<u32>,
-    pub col: Option<u32>,
+    pub line: Option<i32>,
+    pub col: Option<i32>,
 }
 
 impl AbbsDb {
@@ -64,13 +65,13 @@ impl AbbsDb {
             ..
         } = repo_config;
 
-        let conn = Database::connect(format!("sqlite://{abbs_db_path}?mode=rwc")).await?;
-
+        let conn = Database::connect(abbs_db_path).await?;
+        Packages.create_table(&conn).await?;
         PackageDependencies.create_table(&conn).await?;
         PackageDuplicate.create_table(&conn).await?;
         PackageSpec.create_table(&conn).await?;
+        exec(&conn, "ALTER TABLE package_spec ALTER CONSTRAINT \"fk-package_spec-package\" INITIALLY DEFERRED", []).await?;
         PackageVersions.create_table(&conn).await?;
-        Packages.create_table(&conn).await?;
         TreeBranches.create_table(&conn).await?;
         Trees.create_table(&conn).await?;
         PackageChanges.create_table(&conn).await?;
@@ -79,20 +80,14 @@ impl AbbsDb {
 
         exec(
             &conn,
-            "CREATE VIRTUAL TABLE IF NOT EXISTS fts_packages USING fts5(name, description, tokenize = porter)",
-            [],
-        )
-        .await?;
-        exec(
-            &conn,
             "
-            CREATE VIEW IF NOT EXISTS v_packages AS
+            CREATE OR REPLACE VIEW v_packages AS
             SELECT
-                p.name name,
-                p.tree tree,
-                t.category tree_category,
-                pv.branch branch,
-                p.category category,
+                p.name AS name,
+                p.tree AS tree,
+                t.category AS tree_category,
+                pv.branch AS branch,
+                p.category AS category,
                 section,
                 pkg_section,
                 directory,
@@ -102,12 +97,12 @@ impl AbbsDb {
                 (
                     (
                         CASE
-                            WHEN ifnull(epoch, '') = '' THEN ''
+                            WHEN coalesce(epoch, '') = '' THEN ''
                             ELSE epoch || ':'
                         END
                     ) || version || (
                         CASE
-                            WHEN ifnull(release, '') IN ('', '0') THEN ''
+                            WHEN coalesce(release, '') IN ('', '0') THEN ''
                             ELSE '-' || release
                         END
                     )
@@ -123,6 +118,7 @@ impl AbbsDb {
         )
         .await?;
 
+        // trees::Entity::save(active).await?;
         trees::Model {
             tid: *priority,
             name: name.into(),
@@ -130,7 +126,17 @@ impl AbbsDb {
             url: url.into(),
             mainbranch: branch.into(),
         }
-        .replace(&conn)
+        .insert_or_update(
+            &conn,
+            vec![trees::Column::Tid],
+            vec![
+                trees::Column::Tid,
+                trees::Column::Name,
+                trees::Column::Category,
+                trees::Column::Url,
+                trees::Column::Mainbranch,
+            ],
+        )
         .await?;
 
         trees::Model {
@@ -140,7 +146,17 @@ impl AbbsDb {
             url: url.into(),
             mainbranch: branch.into(),
         }
-        .replace(&conn)
+        .insert_or_update(
+            &conn,
+            vec![trees::Column::Tid],
+            vec![
+                trees::Column::Tid,
+                trees::Column::Name,
+                trees::Column::Category,
+                trees::Column::Url,
+                trees::Column::Mainbranch,
+            ],
+        )
         .await?;
 
         tree_branches::Model {
@@ -149,7 +165,16 @@ impl AbbsDb {
             branch: branch.into(),
             priority: Some(*priority),
         }
-        .replace(&conn)
+        .insert_or_update(
+            &conn,
+            vec![tree_branches::Column::Name],
+            vec![
+                tree_branches::Column::Name,
+                tree_branches::Column::Tree,
+                tree_branches::Column::Branch,
+                tree_branches::Column::Priority,
+            ],
+        )
         .await?;
 
         Ok(Self {
@@ -207,27 +232,21 @@ impl AbbsDb {
             description: pkg.description.clone(),
             spec_path: pkg.spec_path.clone(),
         }
-        .replace(&txn)
+        .insert_or_update(
+            db,
+            vec![packages::Column::Name],
+            vec![
+                packages::Column::Name,
+                packages::Column::Tree,
+                packages::Column::Category,
+                packages::Column::Section,
+                packages::Column::PkgSection,
+                packages::Column::Directory,
+                packages::Column::Description,
+                packages::Column::SpecPath,
+            ],
+        )
         .await?;
-
-        let res = FtsPackages::find()
-            .filter(fts_packages::Column::Name.eq(pkg.name.clone()))
-            .one(db)
-            .await?;
-
-        let model = fts_packages::Model {
-            name: pkg.name.clone(),
-            description: pkg.description.clone(),
-        };
-
-        if let Some(res) = res {
-            if res.description != pkg.description {
-                res.delete(db).await?;
-                model.replace(db).await?;
-            }
-        } else {
-            model.replace(db).await?;
-        }
 
         let first = pkg_changes[0].clone();
         let changes_iter = pkg_changes.into_iter().map(|change| {
@@ -245,7 +264,30 @@ impl AbbsDb {
             }
             .into_active_model()
         });
-        replace_many(changes_iter).exec(db).await?;
+
+        for i in changes_iter {
+            let mut insert = Insert::one(i);
+            insert.query().on_conflict(
+                OnConflict::columns(vec![
+                    package_changes::Column::Package,
+                    package_changes::Column::Githash,
+                ])
+                .update_columns(vec![
+                    package_changes::Column::Package,
+                    package_changes::Column::Githash,
+                    package_changes::Column::Version,
+                    package_changes::Column::Branch,
+                    package_changes::Column::Urgency,
+                    package_changes::Column::Message,
+                    package_changes::Column::MaintainerName,
+                    package_changes::Column::MaintainerEmail,
+                    package_changes::Column::Timestamp,
+                    package_changes::Column::Tree,
+                ])
+                .to_owned(),
+            );
+            insert.exec(db).await?;
+        }
 
         package_versions::Model {
             package: pkg.name.clone(),
@@ -262,13 +304,26 @@ impl AbbsDb {
             ),
             githash: first.githash.clone(),
         }
-        .replace(db)
+        .insert_or_update(
+            db,
+            vec![
+                package_versions::Column::Package,
+                package_versions::Column::Branch,
+                package_versions::Column::Architecture,
+            ],
+            vec![
+                package_versions::Column::Package,
+                package_versions::Column::Branch,
+                package_versions::Column::Architecture,
+                package_versions::Column::Version,
+                package_versions::Column::Release,
+                package_versions::Column::Epoch,
+                package_versions::Column::CommitTime,
+                package_versions::Column::Committer,
+                package_versions::Column::Githash,
+            ],
+        )
         .await?;
-
-        PackageSpec::delete_many()
-            .filter(package_spec::Column::Package.eq(pkg.name.clone()))
-            .exec(db)
-            .await?;
 
         let iter = context.into_iter().map(|(k, v)| {
             package_spec::Model {
@@ -278,7 +333,23 @@ impl AbbsDb {
             }
             .into_active_model()
         });
-        replace_many(iter).exec(db).await?;
+
+        for i in iter {
+            let mut insert = Insert::one(i);
+            insert.query().on_conflict(
+                OnConflict::columns(vec![
+                    package_spec::Column::Package,
+                    package_spec::Column::Key,
+                ])
+                .update_columns(vec![
+                    package_spec::Column::Package,
+                    package_spec::Column::Key,
+                    package_spec::Column::Value,
+                ])
+                .to_owned(),
+            );
+            insert.exec(db).await?;
+        }
 
         PackageDependencies::delete_many()
             .filter(package_dependencies::Column::Package.eq(pkg.name.clone()))
@@ -309,10 +380,31 @@ impl AbbsDb {
                 col: Set(e.col),
                 id: NotSet,
             });
-            replace_many(iter).exec(db).await?;
+
+            for i in iter {
+                let mut insert = Insert::one(i);
+                insert.query().on_conflict(
+                    OnConflict::columns(vec![package_errors::Column::Id])
+                        .update_columns(vec![
+                            package_errors::Column::Package,
+                            package_errors::Column::ErrType,
+                            package_errors::Column::Message,
+                            package_errors::Column::Path,
+                            package_errors::Column::Tree,
+                            package_errors::Column::Branch,
+                            package_errors::Column::Line,
+                            package_errors::Column::Col,
+                            package_errors::Column::Id,
+                        ])
+                        .to_owned(),
+                );
+
+                insert.exec(db).await?;
+            }
         }
 
         txn.commit().await?;
+
         Ok(())
     }
 
@@ -350,11 +442,6 @@ impl AbbsDb {
             .exec(db)
             .await?;
 
-        Delete::many(FtsPackages)
-            .filter(fts_packages::Column::Name.eq(pkg_name.to_string()))
-            .exec(db)
-            .await?;
-
         Delete::many(PackageErrors)
             .filter(package_errors::Column::Package.eq(pkg_name.to_string()))
             .filter(package_errors::Column::Tree.eq(self.tree.to_string()))
@@ -379,7 +466,6 @@ impl AbbsDb {
         exculde: &HashSet<String>,
     ) -> Result<()> {
         let result = commit_db.update_package_testing(repo, exculde).await?;
-
         let main = scan_branch(repo, repo.get_repo_branch(), Some(1000))?;
         let mut outdated_branches = vec![];
 
@@ -422,7 +508,23 @@ impl AbbsDb {
                         tree: repo.tree.clone(),
                         commit: info.commit_id.to_string(),
                     }
-                    .replace(&self.conn)
+                    .insert_or_update(
+                        &self.conn,
+                        vec![
+                            package_testing::Column::Package,
+                            package_testing::Column::Tree,
+                            package_testing::Column::Branch,
+                        ],
+                        vec![
+                            package_testing::Column::SpecPath,
+                            package_testing::Column::Package,
+                            package_testing::Column::Version,
+                            package_testing::Column::DefinesPath,
+                            package_testing::Column::Branch,
+                            package_testing::Column::Tree,
+                            package_testing::Column::Commit,
+                        ],
+                    )
                     .await?;
                 } else if (new_order > last) & (db_order > last) {
                     PackageTesting::delete_by_id((
@@ -543,7 +645,23 @@ async fn add_dependencies(
                 architecture: architecture.into(),
                 relationship: relationship.into(),
             }
-            .replace(db)
+            .insert_or_update(
+                db,
+                vec![
+                    package_dependencies::Column::Package,
+                    package_dependencies::Column::Dependency,
+                    package_dependencies::Column::Architecture,
+                    package_dependencies::Column::Relationship,
+                ],
+                vec![
+                    package_dependencies::Column::Package,
+                    package_dependencies::Column::Dependency,
+                    package_dependencies::Column::Relop,
+                    package_dependencies::Column::Version,
+                    package_dependencies::Column::Architecture,
+                    package_dependencies::Column::Relationship,
+                ],
+            )
             .await?;
         }
     }

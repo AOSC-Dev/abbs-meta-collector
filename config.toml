@@ -1,6 +1,6 @@
 [global]
-commits_db_path = "/dev/shm/commits.db"
-abbs_db_path = "/dev/shm/abbs.db"
+commits_db_path = "postgres://postgres:postgres@localhost:5432"
+abbs_db_path = "postgres://postgres:postgres@localhost:5432"
 
 [[repo]]
 branch = "stable"

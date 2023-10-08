@@ -9,7 +9,6 @@ pub struct Model {
     pub package: String,
     #[sea_orm(primary_key)]
     pub githash: String,
-
     pub version: String,
     pub tree: String,
     pub branch: String,

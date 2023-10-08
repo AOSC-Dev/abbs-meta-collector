@@ -72,9 +72,11 @@ pub async fn do_scan_and_update(global_config: &Global, repo_config: &Repo) -> R
 }
 
 fn init_log() {
+    use tracing_subscriber::fmt::format;
     tracing_subscriber::fmt()
-        .with_env_filter("sqlx::query=warn,abbs_meta=info")
+        .with_env_filter("sqlx::query=trace,abbs_meta=info")
         .with_file(true)
         .with_line_number(true)
+        .event_format(format().compact())
         .init();
 }

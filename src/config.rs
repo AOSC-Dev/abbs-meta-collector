@@ -15,6 +15,7 @@ pub struct Config {
 pub struct Global {
     pub commits_db_path: String,
     pub abbs_db_path: String,
+    // pub path: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

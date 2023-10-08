@@ -93,8 +93,8 @@ fn parse_spec_and_defines(
                 path: spec_path.to_str()?.to_string(),
                 message: e.to_string(),
                 err_type: ErrorType::Parse,
-                line: Some(e.line as u32),
-                col: Some(e.col as u32),
+                line: Some(e.line as i32),
+                col: Some(e.col as i32),
             })
         });
         errors.extend(iter);
@@ -109,8 +109,8 @@ fn parse_spec_and_defines(
                 path: defines_path.to_str()?.to_string(),
                 message: e.to_string(),
                 err_type: ErrorType::Parse,
-                line: Some(e.line as u32),
-                col: Some(e.col as u32),
+                line: Some(e.line as i32),
+                col: Some(e.col as i32),
             })
         });
         errors.extend(iter);

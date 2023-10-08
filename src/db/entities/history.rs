@@ -5,12 +5,12 @@ use sea_orm::entity::prelude::*;
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "histories")]
 pub struct Model {
-    pub commit_id: String,
-    timestamp: i64,
     pub tree: String,
     pub branch: String,
+    pub commit_id: String,
+    timestamp: i64, 
     #[sea_orm(primary_key, auto_increment = true)]
-    id: u32,
+    id: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter)]

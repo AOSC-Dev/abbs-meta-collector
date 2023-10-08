@@ -1,6 +1,6 @@
 use super::entities::prelude::*;
 use super::entities::{commit, history};
-use super::{replace_many, CreateTable};
+use super::CreateTable;
 use crate::git::commit::FileStatus;
 use crate::git::{Repository, SyncRepository};
 use crate::package::{
@@ -12,9 +12,11 @@ use git2::Oid;
 use indexmap::IndexSet;
 use itertools::Itertools;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+use sea_orm::sea_query::OnConflict;
 use sea_orm::ActiveValue::NotSet;
 use sea_orm::{
-    ActiveModelTrait, Database, IntoActiveModel, QueryOrder, QuerySelect, TransactionTrait,
+    ActiveModelTrait, Database, Insert, IntoActiveModel, QueryOrder, QuerySelect, QueryTrait,
+    TransactionTrait,
 };
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use std::collections::{HashMap, HashSet};
@@ -60,7 +62,7 @@ pub struct CommitInfo {
 impl CommitDb {
     pub async fn open<P: AsRef<str>>(path: P) -> Result<Self> {
         let path = path.as_ref();
-        let conn = Database::connect(format!("sqlite://{path}?mode=rwc")).await?;
+        let conn = Database::connect(path).await?;
 
         Commit.create_table(&conn).await?;
         History.create_table(&conn).await?;
@@ -158,8 +160,33 @@ impl CommitDb {
                 },
             )
             .chunks(2048);
+
         for iter in iters.into_iter() {
-            replace_many(iter).exec(&db).await?;
+            for i in iter {
+                let mut insert = Insert::one(i);
+                insert.query().on_conflict(
+                    OnConflict::columns(vec![
+                        commit::Column::PkgName,
+                        commit::Column::PkgVersion,
+                        commit::Column::CommitId,
+                        commit::Column::Tree,
+                        commit::Column::Branch,
+                    ])
+                    .update_columns(vec![
+                        commit::Column::PkgName,
+                        commit::Column::PkgVersion,
+                        commit::Column::SpecPath,
+                        commit::Column::DefinesPath,
+                        commit::Column::Tree,
+                        commit::Column::Branch,
+                        commit::Column::CommitId,
+                        commit::Column::CommitTime,
+                        commit::Column::Status,
+                    ])
+                    .to_owned(),
+                );
+                insert.exec(&self.conn).await?;
+            }
         }
 
         db.commit().await?;
@@ -233,17 +260,20 @@ impl CommitDb {
             .column_as(history::Column::Timestamp.max(), history::Column::Timestamp)
             .group_by(history::Column::Tree)
             .group_by(history::Column::Branch)
+            .group_by(history::Column::CommitId)
+            .group_by(history::Column::Timestamp)
+            .group_by(history::Column::Id)
             .one(&self.conn)
             .await?)
     }
 
     async fn insert_history(&self, tree: &str, branch: &str, commit: Oid) -> Result<()> {
         history::ActiveModel {
+            id: NotSet,
             tree: Set(tree.to_string()),
             branch: Set(branch.to_string()),
             commit_id: Set(commit.to_string()),
             timestamp: Set(unix_timestamp_now()?),
-            id: NotSet,
         }
         .save(&self.conn)
         .await?;
