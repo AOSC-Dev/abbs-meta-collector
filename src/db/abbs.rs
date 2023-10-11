@@ -55,7 +55,7 @@ pub struct PackageError {
 
 impl AbbsDb {
     pub async fn open(global_config: &Global, repo_config: &Repo) -> Result<Self> {
-        let abbs_db_path = &global_config.abbs_db_path;
+        let abbs_db_path = &global_config.abbs_db_conn;
         let Repo {
             branch,
             priority,

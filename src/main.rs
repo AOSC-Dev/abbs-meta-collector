@@ -37,7 +37,7 @@ async fn main() -> Result<()> {
 
 pub async fn do_scan_and_update(global_config: &Global, repo_config: &Repo) -> Result<()> {
     let repo = &Repository::open(repo_config)?;
-    let commit_db = &CommitDb::open(&global_config.commits_db_path).await?;
+    let commit_db = &CommitDb::open(&global_config.abbs_db_conn).await?;
     let abbs_db = &AbbsDb::open(global_config, repo_config).await?;
     abbs_db
         .update_testing_branch(commit_db, repo, &HashSet::new())
@@ -74,7 +74,7 @@ pub async fn do_scan_and_update(global_config: &Global, repo_config: &Repo) -> R
 fn init_log() {
     use tracing_subscriber::fmt::format;
     tracing_subscriber::fmt()
-        .with_env_filter("sqlx::query=trace,abbs_meta=info")
+        .with_env_filter("sqlx::query=info,abbs_meta=info")
         .with_file(true)
         .with_line_number(true)
         .event_format(format().compact())
