@@ -84,7 +84,8 @@ impl CommitDb {
         let local_repo: ThreadLocal<Repository> = ThreadLocal::new();
         let result = repo.scan_commits(commits)?;
 
-        let commit_info: Vec<_> = (&result)
+        // iterate each added/modified/deleted file in each commit
+        let mut commit_info: Vec<_> = (&result)
             .into_par_iter()
             .filter_map(|(commit_id, time, file_path, file_status)| {
                 let repo = local_repo.get_or(|| sync_repo.try_into().unwrap());
@@ -92,6 +93,7 @@ impl CommitDb {
                 let commit = match file_status {
                     Added | Modified => commit_id,
                     Deleted => {
+                        // find parent commit where the file still exists
                         let commit = repo.find_commit(commit_id).ok()?;
                         let parents: Vec<_> = commit.parents().collect();
                         match parents.len() {
@@ -106,8 +108,9 @@ impl CommitDb {
                 };
 
                 let generate_package_commit_info = |defines_path: &PathBuf| {
+                    // for each change package, create an entry in commits table
+                    // read package info from the specified commit
                     let spec_path = defines_path_to_spec_path(defines_path).ok()?;
-
                     let (res, _) = scan_package(repo, commit_id, &spec_path, defines_path);
                     let (pkg, _) = res?;
 
@@ -126,6 +129,7 @@ impl CommitDb {
                     })
                 };
 
+                // locate defines files related to the changed file
                 path_to_defines_path(repo, commit, file_path)
                     .ok()
                     .map(|path| {
@@ -137,6 +141,22 @@ impl CommitDb {
             .flatten()
             .collect();
 
+        // dedup before inserting into database
+        // primary key: (pkg_name, pkg_version, tree, branch, commit_id)
+        // tree and branch are common
+        commit_info.sort_by(|left, right| {
+            (&left.pkg_name, &left.pkg_version, &left.commit_id).cmp(&(
+                &right.pkg_name,
+                &right.pkg_version,
+                &right.commit_id,
+            ))
+        });
+        commit_info.dedup_by(|left, right| {
+            (&left.pkg_name, &left.pkg_version, &left.commit_id)
+                == (&right.pkg_name, &right.pkg_version, &right.commit_id)
+        });
+
+        // insert to database in chunks
         let iters = commit_info
             .clone()
             .into_iter()
