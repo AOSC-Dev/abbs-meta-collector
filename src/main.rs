@@ -37,7 +37,7 @@ async fn main() -> Result<()> {
 
 pub async fn do_scan_and_update(global_config: &Global, repo_config: &Repo) -> Result<()> {
     let repo = &Repository::open(repo_config)?;
-    let commit_db = &CommitDb::open(&global_config.commits_db_path).await?;
+    let commit_db = &CommitDb::open(&global_config.commits_db).await?;
     let abbs_db = &AbbsDb::open(global_config, repo_config).await?;
     abbs_db
         .update_testing_branch(commit_db, repo, &HashSet::new())

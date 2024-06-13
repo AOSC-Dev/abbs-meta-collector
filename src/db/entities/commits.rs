@@ -3,18 +3,22 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
-#[sea_orm(table_name = "package_duplicate")]
+#[sea_orm(table_name = "commits")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
-    pub package: String,
+    pub pkg_name: String,
+    #[sea_orm(primary_key, auto_increment = false)]
+    pub pkg_version: String,
+    pub spec_path: String,
+    pub defines_path: String,
     #[sea_orm(primary_key, auto_increment = false)]
     pub tree: String,
     #[sea_orm(primary_key, auto_increment = false)]
-    pub category: String,
+    pub branch: String,
     #[sea_orm(primary_key, auto_increment = false)]
-    pub section: String,
-    #[sea_orm(primary_key, auto_increment = false)]
-    pub directory: String,
+    pub commit_id: String,
+    pub commit_time: i64,
+    pub status: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

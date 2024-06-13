@@ -3,16 +3,12 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
-#[sea_orm(table_name = "package_errors")]
+#[sea_orm(table_name = "histories")]
 pub struct Model {
-    pub package: String,
-    pub err_type: String,
-    pub message: String,
-    pub path: String,
+    pub commit_id: String,
+    pub timestamp: i64,
     pub tree: String,
     pub branch: String,
-    pub line: Option<i32>,
-    pub col: Option<i32>,
     #[sea_orm(primary_key)]
     pub id: i32,
 }

@@ -1,7 +1,7 @@
 use super::commits::{Change, CommitDb};
 use super::entities::{
-    fts_packages, package_changes, package_dependencies, package_duplicate, package_errors,
-    package_spec, package_testing, package_versions, packages, prelude::*, tree_branches, trees,
+    package_changes, package_dependencies, package_duplicate, package_errors, package_spec,
+    package_testing, package_versions, packages, prelude::*, tree_branches, trees,
 };
 use super::{exec, replace_many, InstertExt};
 use crate::config::{Global, Repo};
@@ -48,13 +48,12 @@ pub struct PackageError {
     pub path: String,
     pub message: String,
     pub err_type: ErrorType,
-    pub line: Option<u32>,
-    pub col: Option<u32>,
+    pub line: Option<i32>,
+    pub col: Option<i32>,
 }
 
 impl AbbsDb {
     pub async fn open(global_config: &Global, repo_config: &Repo) -> Result<Self> {
-        let abbs_db_path = &global_config.abbs_db_path;
         let Repo {
             branch,
             priority,
@@ -64,13 +63,13 @@ impl AbbsDb {
             ..
         } = repo_config;
 
-        let conn = Database::connect(format!("sqlite://{abbs_db_path}?mode=rwc")).await?;
+        let conn = Database::connect(global_config.abbs_db.clone()).await?;
 
+        Packages.create_table(&conn).await?;
         PackageDependencies.create_table(&conn).await?;
         PackageDuplicate.create_table(&conn).await?;
         PackageSpec.create_table(&conn).await?;
         PackageVersions.create_table(&conn).await?;
-        Packages.create_table(&conn).await?;
         TreeBranches.create_table(&conn).await?;
         Trees.create_table(&conn).await?;
         PackageChanges.create_table(&conn).await?;
@@ -79,20 +78,14 @@ impl AbbsDb {
 
         exec(
             &conn,
-            "CREATE VIRTUAL TABLE IF NOT EXISTS fts_packages USING fts5(name, description, tokenize = porter)",
-            [],
-        )
-        .await?;
-        exec(
-            &conn,
             "
-            CREATE VIEW IF NOT EXISTS v_packages AS
+            CREATE OR REPLACE VIEW v_packages AS
             SELECT
-                p.name name,
-                p.tree tree,
-                t.category tree_category,
-                pv.branch branch,
-                p.category category,
+                p.name AS name,
+                p.tree AS tree,
+                t.category AS tree_category,
+                pv.branch AS branch,
+                p.category AS category,
                 section,
                 pkg_section,
                 directory,
@@ -102,18 +95,18 @@ impl AbbsDb {
                 (
                     (
                         CASE
-                            WHEN ifnull(epoch, '') = '' THEN ''
+                            WHEN coalesce(epoch, '') = '' THEN ''
                             ELSE epoch || ':'
                         END
                     ) || version || (
                         CASE
-                            WHEN ifnull(release, '') IN ('', '0') THEN ''
+                            WHEN coalesce(release, '') IN ('', '0') THEN ''
                             ELSE '-' || release
                         END
                     )
                 ) full_version,
-                pv.commit_time commit_time,
-                pv.committer committer
+                pv.commit_time AS commit_time,
+                pv.committer AS committer
             FROM
                 packages p
                 INNER JOIN trees t ON t.name = p.tree
@@ -130,17 +123,7 @@ impl AbbsDb {
             url: url.into(),
             mainbranch: branch.into(),
         }
-        .replace(&conn)
-        .await?;
-
-        trees::Model {
-            tid: *priority,
-            name: name.into(),
-            category: category.into(),
-            url: url.into(),
-            mainbranch: branch.into(),
-        }
-        .replace(&conn)
+        .replace(&conn, [trees::Column::Tid], trees::Column::iter())
         .await?;
 
         tree_branches::Model {
@@ -149,7 +132,11 @@ impl AbbsDb {
             branch: branch.into(),
             priority: Some(*priority),
         }
-        .replace(&conn)
+        .replace(
+            &conn,
+            [tree_branches::Column::Name],
+            tree_branches::Column::iter(),
+        )
         .await?;
 
         info!("abbs db opened");
@@ -209,27 +196,8 @@ impl AbbsDb {
             description: pkg.description.clone(),
             spec_path: pkg.spec_path.clone(),
         }
-        .replace(&txn)
+        .replace(&txn, [packages::Column::Name], packages::Column::iter())
         .await?;
-
-        let res = FtsPackages::find()
-            .filter(fts_packages::Column::Name.eq(pkg.name.clone()))
-            .one(db)
-            .await?;
-
-        let model = fts_packages::Model {
-            name: pkg.name.clone(),
-            description: pkg.description.clone(),
-        };
-
-        if let Some(res) = res {
-            if res.description != pkg.description {
-                res.delete(db).await?;
-                model.replace(db).await?;
-            }
-        } else {
-            model.replace(db).await?;
-        }
 
         let first = pkg_changes[0].clone();
         let changes_iter = pkg_changes.into_iter().map(|change| {
@@ -264,7 +232,15 @@ impl AbbsDb {
             ),
             githash: first.githash.clone(),
         }
-        .replace(db)
+        .replace(
+            db,
+            [
+                package_versions::Column::Package,
+                package_versions::Column::Branch,
+                package_versions::Column::Architecture,
+            ],
+            package_versions::Column::iter(),
+        )
         .await?;
 
         PackageSpec::delete_many()
@@ -352,11 +328,6 @@ impl AbbsDb {
             .exec(db)
             .await?;
 
-        Delete::many(FtsPackages)
-            .filter(fts_packages::Column::Name.eq(pkg_name.to_string()))
-            .exec(db)
-            .await?;
-
         Delete::many(PackageErrors)
             .filter(package_errors::Column::Package.eq(pkg_name.to_string()))
             .filter(package_errors::Column::Tree.eq(self.tree.to_string()))
@@ -425,7 +396,15 @@ impl AbbsDb {
                         tree: repo.tree.clone(),
                         commit: info.commit_id.to_string(),
                     }
-                    .replace(&self.conn)
+                    .replace(
+                        &self.conn,
+                        [
+                            package_testing::Column::Package,
+                            package_testing::Column::Tree,
+                            package_testing::Column::Branch,
+                        ],
+                        package_testing::Column::iter(),
+                    )
                     .await?;
                 } else if (new_order > last) & (db_order > last) {
                     PackageTesting::delete_by_id((
@@ -547,7 +526,16 @@ async fn add_dependencies(
                 architecture: architecture.into(),
                 relationship: relationship.into(),
             }
-            .replace(db)
+            .replace(
+                db,
+                [
+                    package_dependencies::Column::Package,
+                    package_dependencies::Column::Dependency,
+                    package_dependencies::Column::Architecture,
+                    package_dependencies::Column::Relationship,
+                ],
+                package_dependencies::Column::iter(),
+            )
             .await?;
         }
     }

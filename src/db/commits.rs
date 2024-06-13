@@ -1,5 +1,5 @@
 use super::entities::prelude::*;
-use super::entities::{commit, history};
+use super::entities::{commits, histories};
 use super::{replace_many, CreateTable};
 use crate::git::commit::FileStatus;
 use crate::git::{Repository, SyncRepository};
@@ -59,10 +59,10 @@ pub struct CommitInfo {
 impl CommitDb {
     pub async fn open<P: AsRef<str>>(path: P) -> Result<Self> {
         let path = path.as_ref();
-        let conn = Database::connect(format!("sqlite://{path}?mode=rwc")).await?;
+        let conn = Database::connect(path).await?;
 
-        Commit.create_table(&conn).await?;
-        History.create_table(&conn).await?;
+        Commits.create_table(&conn).await?;
+        Histories.create_table(&conn).await?;
 
         info!("commit db opened");
 
@@ -144,7 +144,7 @@ impl CommitDb {
                      spec_path,
                      status,
                  }| {
-                    commit::Model {
+                    commits::Model {
                         pkg_name,
                         pkg_version,
                         spec_path,
@@ -219,28 +219,28 @@ impl CommitDb {
         Ok(result)
     }
 
-    async fn get_branch_histories(&self, tree: &str, branch: &str) -> Result<Vec<history::Model>> {
-        Ok(History::find()
-            .filter(history::Column::Tree.eq(tree.to_string()))
-            .filter(history::Column::Branch.eq(branch.to_string()))
-            .order_by_desc(history::Column::Timestamp)
+    async fn get_branch_histories(&self, tree: &str, branch: &str) -> Result<Vec<histories::Model>> {
+        Ok(Histories::find()
+            .filter(histories::Column::Tree.eq(tree.to_string()))
+            .filter(histories::Column::Branch.eq(branch.to_string()))
+            .order_by_desc(histories::Column::Timestamp)
             .all(&self.conn)
             .await?)
     }
 
-    async fn get_latest_history(&self, tree: &str, branch: &str) -> Result<Option<history::Model>> {
-        Ok(History::find()
-            .filter(history::Column::Tree.eq(tree.to_string()))
-            .filter(history::Column::Branch.eq(branch.to_string()))
-            .column_as(history::Column::Timestamp.max(), history::Column::Timestamp)
-            .group_by(history::Column::Tree)
-            .group_by(history::Column::Branch)
+    async fn get_latest_history(&self, tree: &str, branch: &str) -> Result<Option<histories::Model>> {
+        Ok(Histories::find()
+            .filter(histories::Column::Tree.eq(tree.to_string()))
+            .filter(histories::Column::Branch.eq(branch.to_string()))
+            .column_as(histories::Column::Timestamp.max(), histories::Column::Timestamp)
+            .group_by(histories::Column::Tree)
+            .group_by(histories::Column::Branch)
             .one(&self.conn)
             .await?)
     }
 
     async fn insert_history(&self, tree: &str, branch: &str, commit: Oid) -> Result<()> {
-        history::ActiveModel {
+        histories::ActiveModel {
             tree: Set(tree.to_string()),
             branch: Set(branch.to_string()),
             commit_id: Set(commit.to_string()),
@@ -342,7 +342,7 @@ impl CommitDb {
         let changes = changes
             .into_iter()
             .filter_map(
-                |commit::Model {
+                |commits::Model {
                      pkg_name,
                      pkg_version,
                      tree,
@@ -379,10 +379,10 @@ impl CommitDb {
     }
 
     /// commits are sorted by timestamp in descending order, return Vec<(commit_id,pkg_version,spec_path,defines_path)>
-    pub async fn get_commits_by_packages(&self, pkg_name: &str) -> Result<Vec<commit::Model>> {
-        let v = Commit::find()
-            .order_by_desc(commit::Column::CommitTime)
-            .filter(commit::Column::PkgName.eq(pkg_name.to_string()))
+    pub async fn get_commits_by_packages(&self, pkg_name: &str) -> Result<Vec<commits::Model>> {
+        let v = Commits::find()
+            .order_by_desc(commits::Column::CommitTime)
+            .filter(commits::Column::PkgName.eq(pkg_name.to_string()))
             .all(&self.conn)
             .await?;
         Ok(v)
@@ -393,9 +393,9 @@ impl CommitDb {
         tree: &str,
         branch: &str,
     ) -> Result<IndexSet<Oid>> {
-        Ok(Commit::find()
-            .filter(commit::Column::Tree.eq(tree.to_string()))
-            .filter(commit::Column::Branch.eq(branch.to_string()))
+        Ok(Commits::find()
+            .filter(commits::Column::Tree.eq(tree.to_string()))
+            .filter(commits::Column::Branch.eq(branch.to_string()))
             .all(&self.conn)
             .await?
             .into_iter()

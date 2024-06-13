@@ -1,8 +1,9 @@
 use anyhow::Result;
 use sea_orm::{
-    sea_query::OnConflict, ActiveModelBehavior, ActiveModelTrait, ConnectionTrait,
-    DatabaseConnection, DbErr, EntityTrait, ExecResult, Insert, InsertResult, IntoActiveModel,
-    ModelTrait, QueryTrait, Schema, Statement, Value,
+    sea_query::{IntoIden, OnConflict},
+    ActiveModelBehavior, ActiveModelTrait, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait,
+    ExecResult, Insert, InsertResult, IntoActiveModel, ModelTrait, QueryTrait, Schema, Statement,
+    Value,
 };
 pub mod abbs;
 pub mod commits;
@@ -26,15 +27,25 @@ impl<E> CreateTable for E where E: EntityTrait {}
 
 #[async_trait::async_trait]
 pub trait InstertExt: ModelTrait {
-    /// REPLACE INTO TABLE VALUES (?....)
-    async fn replace<'a, A, C>(self, db: &'a C) -> Result<InsertResult<A>, DbErr>
+    /// INSERT INTO TABLE VALUES (?....) ON CONFLICT UPDATE
+    async fn replace<'a, A, C, CI, I1, I2>(
+        self,
+        db: &'a C,
+        keys: I1,
+        columns: I2,
+    ) -> Result<InsertResult<A>, DbErr>
     where
         Self: IntoActiveModel<A>,
         C: ConnectionTrait,
         A: ActiveModelTrait<Entity = Self::Entity> + ActiveModelBehavior + Send + 'a,
+        CI: IntoIden,
+        I1: IntoIterator<Item = CI> + Send,
+        I2: IntoIterator<Item = CI> + Send,
     {
         let mut insert = Insert::one(self.into_active_model());
-        insert.query().replace();
+        insert
+            .query()
+            .on_conflict(OnConflict::columns(keys).update_columns(columns).to_owned());
         insert.exec(db).await
     }
 
