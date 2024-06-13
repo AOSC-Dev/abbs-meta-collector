@@ -29,8 +29,3 @@ thread_local = "^1"
 clap = { version = "4.5.7", features = ["derive"] }
 chrono = "0.4.38"
 indicatif = { version = "0.17.8", features = ["rayon"] }
-
-[profile.release]
-lto = "fat"
-codegen-units = 1
-panic = "abort"
