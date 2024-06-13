@@ -200,8 +200,9 @@ impl AbbsDb {
         .await?;
 
         let first = pkg_changes[0].clone();
-        let changes_iter = pkg_changes.into_iter().map(|change| {
-            package_changes::Model {
+        let mut changes: Vec<_> = pkg_changes
+            .into_iter()
+            .map(|change| package_changes::Model {
                 package: change.pkg_name,
                 githash: change.githash,
                 version: change.version,
@@ -212,11 +213,20 @@ impl AbbsDb {
                 maintainer_email: change.maintainer_email,
                 timestamp: change.timestamp,
                 tree: change.tree,
-            }
-            .into_active_model()
+            })
+            .collect();
+
+        // dedup before inserting into database
+        // primary key: (package, githash)
+        changes.sort_by(|left, right| {
+            (&left.package, &left.githash).cmp(&(&right.package, &right.githash))
         });
+        changes.dedup_by(|left, right| {
+            (&left.package, &left.githash) == (&right.package, &right.githash)
+        });
+
         replace_many(
-            changes_iter,
+            changes.into_iter().map(|model| model.into_active_model()),
             [
                 package_changes::Column::Package,
                 package_changes::Column::Githash,
@@ -257,16 +267,22 @@ impl AbbsDb {
             .exec(db)
             .await?;
 
-        let iter = context.into_iter().map(|(k, v)| {
-            package_spec::Model {
+        let mut specs: Vec<_> = context
+            .into_iter()
+            .map(|(k, v)| package_spec::Model {
                 package: pkg.name.clone(),
                 key: k,
                 value: v,
-            }
-            .into_active_model()
-        });
+            })
+            .collect();
+
+        // dedup before inserting into database
+        // primary key: (package, key)
+        specs.sort_by(|left, right| (&left.package, &left.key).cmp(&(&right.package, &right.key)));
+        specs.dedup_by(|left, right| (&left.package, &left.key) == (&right.package, &right.key));
+
         replace_many(
-            iter,
+            specs.into_iter().map(|model| model.into_active_model()),
             [package_spec::Column::Package, package_spec::Column::Key],
             package_spec::Column::iter(),
         )

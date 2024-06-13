@@ -69,10 +69,7 @@ impl Repository {
     }
 
     /// Scan changed files in the specified commits
-    pub fn scan_commits(
-        &self,
-        oids: Vec<Oid>,
-    ) -> Result<Vec<(Oid, Time, PathBuf, FileStatus)>> {
+    pub fn scan_commits(&self, oids: Vec<Oid>) -> Result<Vec<(Oid, Time, PathBuf, FileStatus)>> {
         info!("scanning commit info");
         let sync_repo: &SyncRepository = &self.into();
         let repo: ThreadLocal<Repository> = ThreadLocal::new();
