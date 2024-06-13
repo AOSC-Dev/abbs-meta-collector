@@ -63,7 +63,7 @@ impl AbbsDb {
             ..
         } = repo_config;
 
-        let conn = Database::connect(global_config.abbs_db.clone()).await?;
+        let conn = Database::connect(global_config.database_url.clone()).await?;
 
         Packages.create_table(&conn).await?;
         PackageDependencies.create_table(&conn).await?;

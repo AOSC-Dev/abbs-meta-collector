@@ -1,7 +1,6 @@
 [global]
 # postgres://user@host:port/database
-commits_db = "postgres:///"
-abbs_db = "postgres:///"
+database_url = "postgres:///"
 
 [[repo]]
 branch = "stable"
@@ -16,5 +15,5 @@ branch = "stable"
 category = "base"
 priority = 0
 name = "aosc-os-bsps"
-url = "https://github.com/AOSC-Dev/aosc-os-bsps"
+url = "https://github.com/AOSC-Dev/aosc-os-bsps/"
 repo_path = "/tmp/aosc-os-bsps"

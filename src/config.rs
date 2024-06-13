@@ -13,8 +13,7 @@ pub struct Config {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Global {
-    pub commits_db: String,
-    pub abbs_db: String,
+    pub database_url: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
