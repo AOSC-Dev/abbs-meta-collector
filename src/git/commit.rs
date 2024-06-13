@@ -68,6 +68,7 @@ impl Repository {
         Ok(oids)
     }
 
+    /// Scan changed files in the specified commits
     pub fn scan_commits(
         &self,
         oids: Vec<Oid>,
@@ -84,6 +85,7 @@ impl Repository {
 
                 let parents: Vec<_> = commit.parents().collect();
 
+                // locate parent commit and compare
                 let parent_tree = match parents.len() {
                     0 => None,
                     1 | 2 => Some(parents[0].tree().ok()?),
@@ -97,6 +99,8 @@ impl Repository {
                     .get_git2repo()
                     .diff_tree_to_tree(parent_tree, Some(&commit.tree().ok()?), None)
                     .ok()?;
+
+                // save info for each changed file
                 let changes = diff
                     .deltas()
                     .into_iter()

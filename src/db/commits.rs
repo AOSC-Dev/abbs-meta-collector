@@ -10,7 +10,6 @@ use crate::skip_error;
 use anyhow::{bail, Result};
 use chrono::{DateTime, FixedOffset, Local, TimeZone};
 use git2::Oid;
-use indexmap::IndexSet;
 use indicatif::ParallelProgressIterator;
 use itertools::Itertools;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
@@ -27,6 +26,7 @@ use thread_local::ThreadLocal;
 use tracing::{debug, info, warn};
 use FileStatus::*;
 
+/// Collect git commits in database
 #[derive(Debug)]
 pub struct CommitDb {
     conn: DatabaseConnection,
@@ -58,6 +58,7 @@ pub struct CommitInfo {
     pub status: FileStatus,
 }
 
+/// Convert git2::Time to DataTimeWithTimeZone
 fn to_datetime(time: &git2::Time) -> DateTimeWithTimeZone {
     DateTime::from_timestamp(time.seconds(), 0)
         .unwrap()
@@ -79,6 +80,7 @@ impl CommitDb {
         Ok(Self { conn })
     }
 
+    /// Add commits from branch to database
     pub async fn add_commits(
         &self,
         repo: &Repository,
@@ -212,6 +214,7 @@ impl CommitDb {
         Ok(commit_info)
     }
 
+    // update packages from testing branches (topic branches)
     pub async fn update_package_testing(
         &self,
         repo: &Repository,
@@ -242,6 +245,7 @@ impl CommitDb {
         let mut result = HashMap::new();
         for testing in testing_branches.iter() {
             info!("processing testing branch {}", testing);
+            // collect new commits
             let to = skip_error!(repo.get_branch_oid(testing));
             let from = self
                 .get_latest_history(&repo.tree, testing)
@@ -251,6 +255,7 @@ impl CommitDb {
             let testing_commits: HashSet<_> =
                 repo.get_commits_by_range(from, to)?.into_iter().collect();
 
+            // skip commits in stable
             let ahead = &testing_commits - &stable_commits;
             let info = self
                 .add_commits(repo, testing, ahead.into_iter().collect())
@@ -266,6 +271,7 @@ impl CommitDb {
         Ok(result)
     }
 
+    /// Get branch histories from db
     async fn get_branch_histories(
         &self,
         tree: &str,
@@ -279,6 +285,7 @@ impl CommitDb {
             .await?)
     }
 
+    /// Get latest commit history of the branch
     async fn get_latest_history(
         &self,
         tree: &str,
@@ -292,6 +299,7 @@ impl CommitDb {
             .await?)
     }
 
+    /// Save history to database
     async fn insert_history(&self, tree: &str, branch: &str, commit: Oid) -> Result<()> {
         histories::ActiveModel {
             tree: Set(tree.to_string()),
@@ -306,8 +314,10 @@ impl CommitDb {
         Ok(())
     }
 
+    /// Update commits in stable branch
     pub async fn update_branch(&self, repo: &Repository, branch: &str) -> Result<Vec<CommitInfo>> {
         info!("save commits from branch {} to db", branch);
+        // find new commits in stable branch
         // SELECT commit_id, history FROM history WHERE timestamp = (SELECT MAX(timestamp) FROM history)
         let from = self
             .get_latest_history(&repo.tree, branch)
@@ -323,7 +333,7 @@ impl CommitDb {
         Ok(result)
     }
 
-    /// return deleted packages meta and
+    /// Find deleted/updated packages
     pub async fn get_updated_packages(
         &self,
         repo: &Repository,
@@ -331,6 +341,7 @@ impl CommitDb {
     ) -> Result<(Vec<Meta>, Vec<Meta>)> {
         let histories = self.get_branch_histories(&repo.tree, branch).await?;
         // from old to new
+        // we only insert one history, so the second latest one is the previous one
         let (from, to) = match histories.len() {
             0 => {
                 bail!("please update branch {branch}")
@@ -341,6 +352,8 @@ impl CommitDb {
                 Oid::from_str(&histories[0].commit_id)?,
             ),
         };
+
+        // compare two commits, find deleted/updated packages
         let diff: HashSet<_> = walk_diff_tree(repo, from, Some(to))?
             .into_iter()
             .filter_map(|(path, status)| {
@@ -385,6 +398,7 @@ impl CommitDb {
         Ok((deleted_packages, updated_packages))
     }
 
+    /// Collect package commit history
     pub async fn get_package_changes(
         &self,
         repo: &Repository,
@@ -431,7 +445,7 @@ impl CommitDb {
         Ok(changes)
     }
 
-    /// commits are sorted by timestamp in descending order, return Vec<(commit_id,pkg_version,spec_path,defines_path)>
+    /// Commits are sorted by timestamp in descending order, return Vec<(commit_id,pkg_version,spec_path,defines_path)>
     pub async fn get_commits_by_packages(&self, pkg_name: &str) -> Result<Vec<commits::Model>> {
         let v = Commits::find()
             .order_by_desc(commits::Column::CommitTime)
@@ -440,23 +454,9 @@ impl CommitDb {
             .await?;
         Ok(v)
     }
-
-    pub async fn get_commits_by_tree_and_branch(
-        &self,
-        tree: &str,
-        branch: &str,
-    ) -> Result<IndexSet<Oid>> {
-        Ok(Commits::find()
-            .filter(commits::Column::Tree.eq(tree.to_string()))
-            .filter(commits::Column::Branch.eq(branch.to_string()))
-            .all(&self.conn)
-            .await?
-            .into_iter()
-            .filter_map(|m| Oid::from_str(&m.commit_id).ok())
-            .collect())
-    }
 }
 
+/// Walk and collect files changed in the diff between two commits
 fn walk_diff_tree(
     repo: &Repository,
     from: Option<Oid>,

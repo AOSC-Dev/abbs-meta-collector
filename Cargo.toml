@@ -23,7 +23,6 @@ sea-orm = { version = "0.12", features = [
 ] }
 async-std = { version = "^1", features = ["attributes"] }
 itertools = "0.10"
-indexmap = "^1"
 async-trait = "0.1"
 thread_local = "^1"
 clap = { version = "4.5.7", features = ["derive"] }
