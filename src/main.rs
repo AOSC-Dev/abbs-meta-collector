@@ -4,9 +4,9 @@ use abbs_meta::{
     git::Repository,
 };
 use anyhow::Result;
+use clap::Parser;
 use itertools::Itertools;
 use std::collections::HashSet;
-use clap::Parser;
 use tracing::info;
 
 #[derive(Parser, Debug)]

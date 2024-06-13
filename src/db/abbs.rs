@@ -152,6 +152,8 @@ impl AbbsDb {
         .replace(&conn)
         .await?;
 
+        info!("abbs db opened");
+
         Ok(Self {
             conn,
             tree: name.clone(),
@@ -378,6 +380,7 @@ impl AbbsDb {
         repo: &Repository,
         exculde: &HashSet<String>,
     ) -> Result<()> {
+        info!("updating testing branch");
         let result = commit_db.update_package_testing(repo, exculde).await?;
 
         let main = scan_branch(repo, repo.get_repo_branch(), Some(1000))?;
@@ -473,6 +476,7 @@ fn scan_branch(
     branch_name: &str,
     take: Option<usize>,
 ) -> Result<HashMap<Oid, usize>> {
+    info!("scanning {} branch", branch_name);
     use anyhow::Context;
     let repo = repo.get_git2repo();
 

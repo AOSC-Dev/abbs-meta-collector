@@ -22,8 +22,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thread_local::ThreadLocal;
-use tracing::debug;
-use tracing::log::warn;
+use tracing::{debug, info, warn};
 use FileStatus::*;
 
 #[derive(Debug)]
@@ -64,6 +63,8 @@ impl CommitDb {
 
         Commit.create_table(&conn).await?;
         History.create_table(&conn).await?;
+
+        info!("commit db opened");
 
         Ok(Self { conn })
     }
@@ -195,6 +196,7 @@ impl CommitDb {
 
         let mut result = HashMap::new();
         for testing in testing_branches.iter() {
+            info!("processing testing branch {}", testing);
             let to = skip_error!(repo.get_branch_oid(testing));
             let from = self
                 .get_latest_history(&repo.tree, testing)
@@ -252,6 +254,7 @@ impl CommitDb {
     }
 
     pub async fn update_branch(&self, repo: &Repository, branch: &str) -> Result<Vec<CommitInfo>> {
+        info!("save commits from branch {} to db", branch);
         // SELECT commit_id, history FROM history WHERE timestamp = (SELECT MAX(timestamp) FROM history)
         let from = self
             .get_latest_history(&repo.tree, branch)
