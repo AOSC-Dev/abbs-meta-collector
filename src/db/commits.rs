@@ -83,7 +83,7 @@ impl CommitDb {
         &self,
         repo: &Repository,
         branch: &str,
-        commits: impl IntoParallelIterator<Item = Oid>,
+        commits: Vec<Oid>,
     ) -> Result<Vec<CommitInfo>> {
         let db = self.conn.begin().await?;
         let tree = &repo.tree;
@@ -252,7 +252,9 @@ impl CommitDb {
                 repo.get_commits_by_range(from, to)?.into_iter().collect();
 
             let ahead = &testing_commits - &stable_commits;
-            let info = self.add_commits(repo, testing, ahead).await?;
+            let info = self
+                .add_commits(repo, testing, ahead.into_iter().collect())
+                .await?;
 
             self.insert_history(&repo.tree, testing, to).await?;
 

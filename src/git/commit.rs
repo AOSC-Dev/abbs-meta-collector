@@ -1,6 +1,7 @@
 use super::{Repository, SyncRepository};
 use anyhow::Result;
 use git2::{Delta, Oid, Time};
+use indicatif::ParallelProgressIterator;
 use itertools::Itertools;
 use rayon::prelude::*;
 use std::path::PathBuf;
@@ -69,13 +70,14 @@ impl Repository {
 
     pub fn scan_commits(
         &self,
-        oids: impl IntoParallelIterator<Item = Oid>,
+        oids: Vec<Oid>,
     ) -> Result<Vec<(Oid, Time, PathBuf, FileStatus)>> {
         info!("scanning commit info");
         let sync_repo: &SyncRepository = &self.into();
         let repo: ThreadLocal<Repository> = ThreadLocal::new();
         let result = oids
             .into_par_iter()
+            .progress()
             .filter_map(|oid| {
                 let repo = repo.get_or(|| sync_repo.try_into().unwrap());
                 let commit = repo.find_commit(oid).ok()?;

@@ -13,9 +13,6 @@ pub struct Model {
     pub version: Option<String>,
     #[sea_orm(primary_key, auto_increment = false)]
     pub architecture: String,
-
-    // PKGDEP, PKGRECOM, PKGBREAK, PKGCONFL, PKGREP,
-    // PKGPROV, PKGSUG, BUILDDEP
     #[sea_orm(primary_key, auto_increment = false)]
     pub relationship: String,
 }
