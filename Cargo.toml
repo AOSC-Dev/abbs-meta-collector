@@ -7,8 +7,8 @@ license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-abbs-meta-apml = { git = "https://github.com/AoSC-Dev/abbs-meta-rs" }
-abbs-meta-tree = { git = "https://github.com/AoSC-Dev/abbs-meta-rs" }
+abbs-meta-apml = { git = "https://github.com/AOSC-Dev/abbs-meta-rs" }
+abbs-meta-tree = { git = "https://github.com/AOSC-Dev/abbs-meta-rs" }
 toml = "0.7"
 serde = { version = "^1", default-features = false, features = ["derive"] }
 anyhow = "^1"
