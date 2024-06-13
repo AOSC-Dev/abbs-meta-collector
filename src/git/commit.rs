@@ -1,11 +1,12 @@
 use super::{Repository, SyncRepository};
 use anyhow::Result;
 use git2::{Delta, Oid, Time};
+use indicatif::ParallelProgressIterator;
 use itertools::Itertools;
 use rayon::prelude::*;
 use std::path::PathBuf;
 use thread_local::ThreadLocal;
-use tracing::warn;
+use tracing::{info, warn};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FileStatus {
@@ -71,6 +72,7 @@ impl Repository {
         &self,
         oids: impl IntoParallelIterator<Item = Oid>,
     ) -> Result<Vec<(Oid, Time, PathBuf, FileStatus)>> {
+        info!("scanning commit info");
         let sync_repo: &SyncRepository = &self.into();
         let repo: ThreadLocal<Repository> = ThreadLocal::new();
         let result = oids

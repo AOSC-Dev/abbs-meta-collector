@@ -11,6 +11,7 @@ use anyhow::{bail, Result};
 use chrono::{DateTime, FixedOffset, TimeZone};
 use git2::Oid;
 use indexmap::IndexSet;
+use indicatif::ParallelProgressIterator;
 use itertools::Itertools;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use sea_orm::prelude::DateTimeWithTimeZone;
@@ -84,9 +85,11 @@ impl CommitDb {
         let local_repo: ThreadLocal<Repository> = ThreadLocal::new();
         let result = repo.scan_commits(commits)?;
 
+        info!("collecting commit info");
         // iterate each added/modified/deleted file in each commit
         let mut commit_info: Vec<_> = (&result)
             .into_par_iter()
+            .progress()
             .filter_map(|(commit_id, time, file_path, file_status)| {
                 let repo = local_repo.get_or(|| sync_repo.try_into().unwrap());
                 let commit_id = *commit_id;
@@ -156,6 +159,7 @@ impl CommitDb {
                 == (&right.pkg_name, &right.pkg_version, &right.commit_id)
         });
 
+        info!("saving commit info to database");
         // insert to database in chunks
         let iters = commit_info
             .clone()
