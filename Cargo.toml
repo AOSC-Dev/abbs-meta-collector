@@ -7,26 +7,26 @@ license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-abbs-meta-apml = { git = "https://github.com/7rah/abbs-meta-rs" }
-abbs-meta-tree = { git = "https://github.com/7rah/abbs-meta-rs" }
-toml = "0.5"
-serde = { version = "1.0", default-features = false, features = ["derive"] }
-anyhow = "1"
+abbs-meta-apml = { git = "https://github.com/AoSC-Dev/abbs-meta-rs" }
+abbs-meta-tree = { git = "https://github.com/AoSC-Dev/abbs-meta-rs" }
+toml = "0.7"
+serde = { version = "^1", default-features = false, features = ["derive"] }
+anyhow = "^1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-serde_json = "1.0"
-git2 = { version = "0.15", default-features = false }
-rayon = "1.5"
-sea-orm = { version = "0.9", features = [
+serde_json = "^1"
+git2 = { version = "0.16", default-features = false }
+rayon = "^1"
+sea-orm = { version = "0.11", features = [
     "sqlx-sqlite",
     "runtime-async-std-rustls",
 ] }
-async-std = { version = "1", features = ["attributes"] }
+async-std = { version = "^1", features = ["attributes"] }
 itertools = "0.10"
-indexmap = "1.9"
+indexmap = "^1"
 async-trait = "0.1"
 structopt = "0.3"
-thread_local = "1"
+thread_local = "^1"
 
 [profile.release]
 lto = "fat"
