@@ -8,7 +8,7 @@ use crate::package::{
 };
 use crate::skip_error;
 use anyhow::{bail, Result};
-use chrono::{DateTime, FixedOffset, TimeZone};
+use chrono::{DateTime, FixedOffset, Local, TimeZone};
 use git2::Oid;
 use indexmap::IndexSet;
 use indicatif::ParallelProgressIterator;
@@ -23,7 +23,6 @@ use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::time::{SystemTime, UNIX_EPOCH};
 use thread_local::ThreadLocal;
 use tracing::{debug, info, warn};
 use FileStatus::*;
@@ -45,7 +44,7 @@ pub struct Change {
     pub githash: String,
     pub maintainer_name: String,
     pub maintainer_email: String,
-    pub timestamp: i64,
+    pub timestamp: DateTimeWithTimeZone,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -57,6 +56,14 @@ pub struct CommitInfo {
     pub defines_path: String,
     pub spec_path: String,
     pub status: FileStatus,
+}
+
+fn to_datetime(time: &git2::Time) -> DateTimeWithTimeZone {
+    DateTime::from_timestamp(time.seconds(), 0)
+        .unwrap()
+        .with_timezone(&TimeZone::from_offset(
+            &FixedOffset::east_opt(time.offset_minutes() * 60).unwrap(),
+        ))
 }
 
 impl CommitDb {
@@ -119,11 +126,7 @@ impl CommitDb {
 
                     Some(CommitInfo {
                         commit_id,
-                        commit_time: DateTime::from_timestamp(time.seconds(), 0)
-                            .unwrap()
-                            .with_timezone(&TimeZone::from_offset(
-                                &FixedOffset::east_opt(time.offset_minutes() * 60).unwrap(),
-                            )),
+                        commit_time: to_datetime(time),
                         pkg_name: pkg.name.clone(),
                         pkg_version: pkg.version,
                         defines_path: defines_path.to_str()?.to_string(),
@@ -292,7 +295,7 @@ impl CommitDb {
             tree: Set(tree.to_string()),
             branch: Set(branch.to_string()),
             commit_id: Set(commit.to_string()),
-            timestamp: Set(unix_timestamp_now()?),
+            timestamp: Set(Local::now().fixed_offset()),
             id: NotSet,
         }
         .save(&self.conn)
@@ -416,7 +419,7 @@ impl CommitDb {
                         githash: commit_id,
                         maintainer_name: maintainer.name()?.to_string(),
                         maintainer_email: maintainer.email()?.to_string(),
-                        timestamp: commit.time().seconds(),
+                        timestamp: to_datetime(&commit.time()),
                     };
                     Some(change)
                 },
@@ -450,10 +453,6 @@ impl CommitDb {
             .filter_map(|m| Oid::from_str(&m.commit_id).ok())
             .collect())
     }
-}
-
-fn unix_timestamp_now() -> Result<i64> {
-    Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64)
 }
 
 fn walk_diff_tree(

@@ -14,7 +14,7 @@ pub struct Model {
     pub version: String,
     pub release: Option<String>,
     pub epoch: Option<String>,
-    pub commit_time: i64,
+    pub commit_time: DateTimeWithTimeZone,
     pub committer: String,
     pub githash: String,
 }

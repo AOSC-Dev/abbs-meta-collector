@@ -1,7 +1,6 @@
 use super::{Repository, SyncRepository};
 use anyhow::Result;
 use git2::{Delta, Oid, Time};
-use indicatif::ParallelProgressIterator;
 use itertools::Itertools;
 use rayon::prelude::*;
 use std::path::PathBuf;

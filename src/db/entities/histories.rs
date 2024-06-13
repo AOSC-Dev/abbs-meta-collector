@@ -6,7 +6,7 @@ use sea_orm::entity::prelude::*;
 #[sea_orm(table_name = "histories")]
 pub struct Model {
     pub commit_id: String,
-    pub timestamp: i64,
+    pub timestamp: DateTimeWithTimeZone,
     pub tree: String,
     pub branch: String,
     #[sea_orm(primary_key)]

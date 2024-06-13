@@ -16,7 +16,7 @@ pub struct Model {
     pub message: String,
     pub maintainer_name: String,
     pub maintainer_email: String,
-    pub timestamp: i64,
+    pub timestamp: DateTimeWithTimeZone,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
