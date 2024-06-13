@@ -9,15 +9,15 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 abbs-meta-apml = { git = "https://github.com/AOSC-Dev/abbs-meta-rs" }
 abbs-meta-tree = { git = "https://github.com/AOSC-Dev/abbs-meta-rs" }
-toml = "0.7"
+toml = "0.8"
 serde = { version = "^1", default-features = false, features = ["derive"] }
 anyhow = "^1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde_json = "^1"
-git2 = { version = "0.16", default-features = false }
+git2 = { version = "0.18", default-features = false }
 rayon = "^1"
-sea-orm = { version = "0.11", features = [
+sea-orm = { version = "0.12", features = [
     "sqlx-sqlite",
     "runtime-async-std-rustls",
 ] }
