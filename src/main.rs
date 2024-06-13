@@ -6,21 +6,21 @@ use abbs_meta::{
 use anyhow::Result;
 use itertools::Itertools;
 use std::collections::HashSet;
-use structopt::StructOpt;
+use clap::Parser;
 use tracing::info;
 
-#[derive(StructOpt, Debug)]
-#[structopt(name = "abbs-meta")]
+#[derive(Parser, Debug)]
+#[command(version, about)]
 struct Opt {
     /// specify configuration file
-    #[structopt(short, long, default_value = "config.toml")]
+    #[arg(short, long, default_value = "config.toml")]
     config: String,
 }
 
 #[async_std::main]
 async fn main() -> Result<()> {
     init_log();
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
     let Config {
         ref global,
