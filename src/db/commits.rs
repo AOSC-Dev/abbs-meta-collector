@@ -8,13 +8,15 @@ use crate::package::{
 };
 use crate::skip_error;
 use anyhow::{bail, Result};
+use chrono::{DateTime, FixedOffset, TimeZone};
 use git2::Oid;
 use indexmap::IndexSet;
 use itertools::Itertools;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+use sea_orm::prelude::DateTimeWithTimeZone;
 use sea_orm::ActiveValue::NotSet;
 use sea_orm::{
-    ActiveModelTrait, Database, IntoActiveModel, QueryOrder, QuerySelect, TransactionTrait,
+    ActiveModelTrait, Database, IntoActiveModel, Iterable, QueryOrder, TransactionTrait,
 };
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use std::collections::{HashMap, HashSet};
@@ -48,7 +50,7 @@ pub struct Change {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct CommitInfo {
     pub commit_id: Oid,
-    pub commit_time: i64,
+    pub commit_time: DateTimeWithTimeZone,
     pub pkg_name: String,
     pub pkg_version: String,
     pub defines_path: String,
@@ -111,7 +113,11 @@ impl CommitDb {
 
                     Some(CommitInfo {
                         commit_id,
-                        commit_time: time.seconds(),
+                        commit_time: DateTime::from_timestamp(time.seconds(), 0)
+                            .unwrap()
+                            .with_timezone(&TimeZone::from_offset(
+                                &FixedOffset::east_opt(time.offset_minutes() * 60).unwrap(),
+                            )),
                         pkg_name: pkg.name.clone(),
                         pkg_version: pkg.version,
                         defines_path: defines_path.to_str()?.to_string(),
@@ -160,7 +166,19 @@ impl CommitDb {
             )
             .chunks(2048);
         for iter in iters.into_iter() {
-            replace_many(iter).exec(&db).await?;
+            replace_many(
+                iter,
+                [
+                    commits::Column::PkgName,
+                    commits::Column::PkgVersion,
+                    commits::Column::Tree,
+                    commits::Column::Branch,
+                    commits::Column::CommitId,
+                ],
+                commits::Column::iter(),
+            )
+            .exec(&db)
+            .await?;
         }
 
         db.commit().await?;
@@ -219,7 +237,11 @@ impl CommitDb {
         Ok(result)
     }
 
-    async fn get_branch_histories(&self, tree: &str, branch: &str) -> Result<Vec<histories::Model>> {
+    async fn get_branch_histories(
+        &self,
+        tree: &str,
+        branch: &str,
+    ) -> Result<Vec<histories::Model>> {
         Ok(Histories::find()
             .filter(histories::Column::Tree.eq(tree.to_string()))
             .filter(histories::Column::Branch.eq(branch.to_string()))
@@ -228,13 +250,15 @@ impl CommitDb {
             .await?)
     }
 
-    async fn get_latest_history(&self, tree: &str, branch: &str) -> Result<Option<histories::Model>> {
+    async fn get_latest_history(
+        &self,
+        tree: &str,
+        branch: &str,
+    ) -> Result<Option<histories::Model>> {
         Ok(Histories::find()
             .filter(histories::Column::Tree.eq(tree.to_string()))
             .filter(histories::Column::Branch.eq(branch.to_string()))
-            .column_as(histories::Column::Timestamp.max(), histories::Column::Timestamp)
-            .group_by(histories::Column::Tree)
-            .group_by(histories::Column::Branch)
+            .order_by_desc(histories::Column::Timestamp)
             .one(&self.conn)
             .await?)
     }

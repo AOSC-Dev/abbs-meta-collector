@@ -27,6 +27,7 @@ indexmap = "^1"
 async-trait = "0.1"
 thread_local = "^1"
 clap = { version = "4.5.7", features = ["derive"] }
+chrono = "0.4.38"
 
 [profile.release]
 lto = "fat"

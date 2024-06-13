@@ -17,7 +17,7 @@ pub struct Model {
     pub branch: String,
     #[sea_orm(primary_key, auto_increment = false)]
     pub commit_id: String,
-    pub commit_time: i64,
+    pub commit_time: DateTimeWithTimeZone,
     pub status: String,
 }
 

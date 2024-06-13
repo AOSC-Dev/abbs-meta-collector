@@ -215,7 +215,16 @@ impl AbbsDb {
             }
             .into_active_model()
         });
-        replace_many(changes_iter).exec(db).await?;
+        replace_many(
+            changes_iter,
+            [
+                package_changes::Column::Package,
+                package_changes::Column::Githash,
+            ],
+            package_changes::Column::iter(),
+        )
+        .exec(db)
+        .await?;
 
         package_versions::Model {
             package: pkg.name.clone(),
@@ -256,7 +265,13 @@ impl AbbsDb {
             }
             .into_active_model()
         });
-        replace_many(iter).exec(db).await?;
+        replace_many(
+            iter,
+            [package_spec::Column::Package, package_spec::Column::Key],
+            package_spec::Column::iter(),
+        )
+        .exec(db)
+        .await?;
 
         PackageDependencies::delete_many()
             .filter(package_dependencies::Column::Package.eq(pkg.name.clone()))
@@ -287,7 +302,13 @@ impl AbbsDb {
                 col: Set(e.col),
                 id: NotSet,
             });
-            replace_many(iter).exec(db).await?;
+            replace_many(
+                iter,
+                [package_errors::Column::Id],
+                package_errors::Column::iter(),
+            )
+            .exec(db)
+            .await?;
         }
 
         txn.commit().await?;

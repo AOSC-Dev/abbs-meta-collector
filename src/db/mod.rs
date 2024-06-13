@@ -79,13 +79,18 @@ where
         .await?)
 }
 
-fn replace_many<A, M, I>(models: I) -> Insert<A>
+fn replace_many<A, M, I, CI, I1, I2>(models: I, keys: I1, columns: I2) -> Insert<A>
 where
     A: ActiveModelTrait,
     M: IntoActiveModel<A>,
     I: IntoIterator<Item = M>,
+    CI: IntoIden,
+    I1: IntoIterator<Item = CI>,
+    I2: IntoIterator<Item = CI>,
 {
     let mut insert = Insert::many(models);
-    insert.query().replace();
+    insert
+        .query()
+        .on_conflict(OnConflict::columns(keys).update_columns(columns).to_owned());
     insert
 }
