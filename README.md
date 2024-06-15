@@ -30,7 +30,7 @@ cargo build --release
 
 # 运行
 
- 你可以参照 config.toml 里的内容进行配置，这里以 config.toml 的配置作为例子。
+你可以参照 config.toml 里的内容进行配置，这里以 config.toml 的配置作为例子。
 
 ```bash
 # clone aosc-os-abbs
@@ -42,7 +42,10 @@ git clone https://github.com/AOSC-Dev/aosc-os-bsps.git /tmp/aosc-os-bsps
 cargo run --release
 ```
 
-**注意**：如果要生成可供 `packages-site` 使用的数据库，你还需要运行 [`dpkgrepo-meta`](https://github.com/AOSC-Dev/dpkgrepo-meta) 以便生成与 dpkg 相关的表。
+**注意**：
+
+1. 如果要生成可供 `packages-site` 使用的数据库，你还需要运行 [`dpkgrepo-meta`](https://github.com/AOSC-Dev/dpkgrepo-meta) 以便生成与 dpkg 相关的表。
+2. 如果采用 `git fetch` 的方式更新仓库，那么记得加上 `--prune` 参数，使得本项目可以了解到分支被删除的信息。
 
 # 运行截图
 
