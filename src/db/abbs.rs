@@ -92,19 +92,7 @@ impl AbbsDb {
                 description,
                 version,
                 spec_path,
-                (
-                    (
-                        CASE
-                            WHEN coalesce(epoch, '') = '' THEN ''
-                            ELSE epoch || ':'
-                        END
-                    ) || version || (
-                        CASE
-                            WHEN coalesce(release, '') IN ('', '0') THEN ''
-                            ELSE '-' || release
-                        END
-                    )
-                ) full_version,
+                pv.full_version full_version,
                 pv.commit_time AS commit_time,
                 pv.committer AS committer
             FROM
@@ -236,12 +224,27 @@ impl AbbsDb {
         .exec(db)
         .await?;
 
+        let epoch = Some(pkg.epoch).filter(|x| *x != 0).map(|x| x.to_string());
+        let release = Some(pkg.release).filter(|x| *x != 0).map(|x| x.to_string());
+
+        // epoch:version-release
+        let mut full_version = String::new();
+        if let Some(epoch) = &epoch {
+            full_version += epoch;
+            full_version += ":";
+        }
+        full_version += &pkg.version;
+        if let Some(release) = &release {
+            full_version += "-";
+            full_version += release;
+        }
+
         package_versions::Model {
             package: pkg.name.clone(),
             branch: self.branch.clone(),
             version: pkg.version.clone(),
-            release: Some(pkg.release).filter(|x| *x != 0).map(|x| x.to_string()),
-            epoch: Some(pkg.epoch).filter(|x| *x != 0).map(|x| x.to_string()),
+            release: release,
+            epoch: epoch,
             commit_time: first.timestamp,
             committer: format!(
                 "{name} <{email}>",
@@ -249,6 +252,7 @@ impl AbbsDb {
                 email = first.maintainer_email
             ),
             githash: first.githash.clone(),
+            full_version,
         }
         .replace(
             db,

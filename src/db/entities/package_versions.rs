@@ -15,6 +15,7 @@ pub struct Model {
     pub commit_time: DateTimeWithTimeZone,
     pub committer: String,
     pub githash: String,
+    pub full_version: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
