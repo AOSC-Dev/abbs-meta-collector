@@ -9,8 +9,6 @@ pub struct Model {
     pub package: String,
     #[sea_orm(primary_key, auto_increment = false)]
     pub branch: String,
-    #[sea_orm(primary_key, auto_increment = false)]
-    pub architecture: String,
     pub version: String,
     pub release: Option<String>,
     pub epoch: Option<String>,

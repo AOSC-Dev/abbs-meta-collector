@@ -239,7 +239,6 @@ impl AbbsDb {
         package_versions::Model {
             package: pkg.name.clone(),
             branch: self.branch.clone(),
-            architecture: "".to_string(),
             version: pkg.version.clone(),
             release: Some(pkg.release).filter(|x| *x != 0).map(|x| x.to_string()),
             epoch: Some(pkg.epoch).filter(|x| *x != 0).map(|x| x.to_string()),
@@ -256,7 +255,6 @@ impl AbbsDb {
             [
                 package_versions::Column::Package,
                 package_versions::Column::Branch,
-                package_versions::Column::Architecture,
             ],
             package_versions::Column::iter(),
         )
