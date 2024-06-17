@@ -3,7 +3,7 @@ use super::entities::{
     package_changes, package_dependencies, package_duplicate, package_errors, package_spec,
     package_testing, package_versions, packages, prelude::*, tree_branches, trees,
 };
-use super::{exec, replace_many, InstertExt};
+use super::{exec, get_full_version, replace_many, InstertExt};
 use crate::config::{Global, Repo};
 use crate::db::CreateTable;
 use crate::git::Repository;
@@ -224,27 +224,14 @@ impl AbbsDb {
         .exec(db)
         .await?;
 
-        let epoch = Some(pkg.epoch).filter(|x| *x != 0).map(|x| x.to_string());
-        let release = Some(pkg.release).filter(|x| *x != 0).map(|x| x.to_string());
-
-        // epoch:version-release
-        let mut full_version = String::new();
-        if let Some(epoch) = &epoch {
-            full_version += epoch;
-            full_version += ":";
-        }
-        full_version += &pkg.version;
-        if let Some(release) = &release {
-            full_version += "-";
-            full_version += release;
-        }
+        let full_version = get_full_version(&pkg);
 
         package_versions::Model {
             package: pkg.name.clone(),
             branch: self.branch.clone(),
             version: pkg.version.clone(),
-            release: release,
-            epoch: epoch,
+            release: Some(pkg.release).filter(|x| *x != 0).map(|x| x.to_string()),
+            epoch: Some(pkg.epoch).filter(|x| *x != 0).map(|x| x.to_string()),
             commit_time: first.timestamp,
             committer: format!(
                 "{name} <{email}>",
@@ -430,6 +417,7 @@ impl AbbsDb {
                         spec_path: info.spec_path,
                         package: info.pkg_name,
                         version: info.pkg_version,
+                        full_version: info.pkg_full_version,
                         defines_path: info.defines_path,
                         branch: branch.clone(),
                         tree: repo.tree.clone(),

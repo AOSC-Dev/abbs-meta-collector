@@ -15,6 +15,7 @@ pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub branch: String,
     pub commit: String,
+    pub full_version: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -1,6 +1,7 @@
 use super::entities::prelude::*;
 use super::entities::{commits, histories};
 use super::{replace_many, CreateTable};
+use crate::db::get_full_version;
 use crate::git::commit::FileStatus;
 use crate::git::{Repository, SyncRepository};
 use crate::package::{
@@ -53,6 +54,7 @@ pub struct CommitInfo {
     pub commit_time: DateTimeWithTimeZone,
     pub pkg_name: String,
     pub pkg_version: String,
+    pub pkg_full_version: String,
     pub defines_path: String,
     pub spec_path: String,
     pub status: FileStatus,
@@ -126,11 +128,14 @@ impl CommitDb {
                     let (res, _) = scan_package(repo, commit_id, &spec_path, defines_path);
                     let (pkg, _) = res?;
 
+                    let full_version = get_full_version(&pkg);
+
                     Some(CommitInfo {
                         commit_id,
                         commit_time: to_datetime(time),
                         pkg_name: pkg.name.clone(),
                         pkg_version: pkg.version,
+                        pkg_full_version: full_version,
                         defines_path: defines_path.to_str()?.to_string(),
                         spec_path: spec_path.to_str()?.to_string(),
                         status: *file_status,
@@ -175,6 +180,7 @@ impl CommitDb {
                      commit_time,
                      pkg_name,
                      pkg_version,
+                     pkg_full_version: _,
                      defines_path,
                      spec_path,
                      status,
