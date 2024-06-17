@@ -50,17 +50,18 @@ pub trait InstertExt: ModelTrait {
     }
 
     /// INSERT OR IGNORE INTO TABLE VALUES (?....)
-    async fn insert_or_ignore<'a, A, C>(self, db: &'a C) -> Result<InsertResult<A>, DbErr>
+    async fn insert_or_ignore<'a, A, C>(self, db: &'a C) -> Result<u64, DbErr>
     where
         Self: IntoActiveModel<A>,
         C: ConnectionTrait,
         A: ActiveModelTrait<Entity = Self::Entity> + ActiveModelBehavior + Send + 'a,
+        <Self::Entity as EntityTrait>::Model: IntoActiveModel<A>,
     {
         let mut insert = Insert::one(self.into_active_model());
         insert
             .query()
             .on_conflict(OnConflict::new().do_nothing().to_owned());
-        insert.exec(db).await
+        insert.exec_without_returning(db).await
     }
 }
 
