@@ -1,10 +1,10 @@
 use abbs_meta_tree::Package;
 use anyhow::Result;
 use sea_orm::{
-    sea_query::{IntoIden, OnConflict},
     ActiveModelBehavior, ActiveModelTrait, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait,
     ExecResult, Insert, InsertResult, IntoActiveModel, ModelTrait, QueryTrait, Schema, Statement,
     Value,
+    sea_query::{IntoIden, OnConflict},
 };
 pub mod abbs;
 pub mod commits;
@@ -99,7 +99,7 @@ where
 
 fn get_full_version(pkg: &Package) -> String {
     let epoch = Some(pkg.epoch).filter(|x| *x != 0).map(|x| x.to_string());
-    let release = Some(pkg.release).filter(|x| *x != 0).map(|x| x.to_string());
+    let release = Some(pkg.release.clone()).filter(|x| x != "0");
 
     // epoch:version-release
     let mut full_version = String::new();

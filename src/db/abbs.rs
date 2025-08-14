@@ -3,20 +3,21 @@ use super::entities::{
     package_changes, package_dependencies, package_duplicate, package_errors, package_spec,
     package_testing, package_versions, packages, prelude::*, tree_branches, trees,
 };
-use super::{exec, get_full_version, replace_many, InstertExt};
+use super::{InstertExt, exec, get_full_version, replace_many};
 use crate::config::{Global, Repo};
 use crate::db::CreateTable;
 use crate::git::Repository;
 use crate::package::Meta;
 use crate::skip_none;
 use abbs_meta_tree::Package;
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use git2::Oid;
 use itertools::Itertools;
-use sea_orm::{entity::*, query::*};
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::{entity::*, query::*};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::fmt::Display;
 use tracing::info;
 use tracing::log::warn;
 
@@ -32,13 +33,12 @@ pub enum ErrorType {
     Package,
 }
 
-impl ToString for ErrorType {
-    fn to_string(&self) -> String {
+impl Display for ErrorType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Parse => "parse",
-            Self::Package => "package",
+            Self::Parse => write!(f, "parse"),
+            Self::Package => write!(f, "package"),
         }
-        .to_string()
     }
 }
 
@@ -230,7 +230,7 @@ impl AbbsDb {
             package: pkg.name.clone(),
             branch: self.branch.clone(),
             version: pkg.version.clone(),
-            release: Some(pkg.release).filter(|x| *x != 0).map(|x| x.to_string()),
+            release: Some(pkg.release).filter(|x| x != "0"),
             epoch: Some(pkg.epoch).filter(|x| *x != 0).map(|x| x.to_string()),
             commit_time: first.timestamp,
             committer: format!(
@@ -540,9 +540,11 @@ async fn add_dependencies(
     db: &impl ConnectionTrait,
 ) -> Result<()> {
     for (architecture, v) in pkgdep {
-        let architecture = (architecture == "default")
-            .then_some("")
-            .unwrap_or(architecture.as_str());
+        let architecture = if architecture == "default" {
+            ""
+        } else {
+            architecture.as_str()
+        };
 
         for (dependency, relop, version) in v.clone() {
             package_dependencies::Model {

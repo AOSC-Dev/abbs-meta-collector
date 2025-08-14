@@ -1,7 +1,7 @@
 [package]
 name = "abbs-meta"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -9,22 +9,22 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 abbs-meta-apml = { git = "https://github.com/AOSC-Dev/abbs-meta-rs" }
 abbs-meta-tree = { git = "https://github.com/AOSC-Dev/abbs-meta-rs" }
-toml = "0.8"
+toml = "0.9"
 serde = { version = "^1", default-features = false, features = ["derive"] }
 anyhow = "^1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde_json = "^1"
-git2 = { version = "0.18", default-features = false }
+git2 = { version = "0.20", default-features = false }
 rayon = "^1"
-sea-orm = { version = "0.12", features = [
+sea-orm = { version = "1.1", features = [
     "sqlx-postgres",
     "runtime-async-std-rustls",
 ] }
 async-std = { version = "^1", features = ["attributes"] }
-itertools = "0.10"
+itertools = "0.14"
 async-trait = "0.1"
 thread_local = "^1"
 clap = { version = "4.5.7", features = ["derive"] }
 chrono = "0.4.38"
-indicatif = { version = "0.17.8", features = ["rayon"] }
+indicatif = { version = "0.18", features = ["rayon"] }
