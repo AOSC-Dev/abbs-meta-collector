@@ -66,12 +66,11 @@ impl Repository {
             .repo
             .find_branch(branch_name, git2::BranchType::Local)
             .or_else(|_| self.repo.find_branch(branch_name, git2::BranchType::Remote))?;
-        let branch = branch
-            .into_reference()
-            .target()
-            .with_context(|| format!("branch {} doesn't exist", branch_name));
 
         branch
+            .into_reference()
+            .target()
+            .with_context(|| format!("branch {} doesn't exist", branch_name))
     }
 
     pub fn find_commit(&self, oid: Oid) -> Result<Commit<'_>, Error> {

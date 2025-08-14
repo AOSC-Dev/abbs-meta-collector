@@ -1,21 +1,22 @@
 use super::entities::prelude::*;
 use super::entities::{commits, histories};
-use super::{replace_many, CreateTable};
+use super::{CreateTable, replace_many};
 use crate::db::get_full_version;
 use crate::git::commit::FileStatus;
 use crate::git::{Repository, SyncRepository};
 use crate::package::{
-    defines_path_to_spec_path, path_to_defines_path, scan_package, scan_packages, Meta,
+    Meta, defines_path_to_spec_path, path_to_defines_path, scan_package, scan_packages,
 };
 use crate::skip_error;
-use anyhow::{bail, Result};
+use FileStatus::*;
+use anyhow::{Result, bail};
 use chrono::{DateTime, FixedOffset, Local, TimeZone};
 use git2::Oid;
 use indicatif::ParallelProgressIterator;
 use itertools::Itertools;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
-use sea_orm::prelude::DateTimeWithTimeZone;
 use sea_orm::ActiveValue::NotSet;
+use sea_orm::prelude::DateTimeWithTimeZone;
 use sea_orm::{
     ActiveModelTrait, Database, IntoActiveModel, Iterable, QueryOrder, TransactionTrait,
 };
@@ -25,7 +26,6 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use thread_local::ThreadLocal;
 use tracing::{debug, info, warn};
-use FileStatus::*;
 
 /// Collect git commits in database
 #[derive(Debug)]
@@ -147,7 +147,7 @@ impl CommitDb {
                     .ok()
                     .map(|path| {
                         path.iter()
-                            .filter_map(|path| generate_package_commit_info(path))
+                            .filter_map(generate_package_commit_info)
                             .collect_vec()
                     })
             })

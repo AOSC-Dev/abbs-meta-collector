@@ -4,7 +4,7 @@ use git2::{Delta, Oid, Time};
 use indicatif::ParallelProgressIterator;
 use itertools::Itertools;
 use rayon::prelude::*;
-use std::path::PathBuf;
+use std::{fmt::Display, path::PathBuf};
 use thread_local::ThreadLocal;
 use tracing::{info, warn};
 
@@ -38,15 +38,18 @@ impl From<&str> for FileStatus {
     }
 }
 
-impl ToString for FileStatus {
-    fn to_string(&self) -> String {
-        match self {
-            Self::Added => "Added",
-            Self::Deleted => "Deleted",
-            Self::Modified => "Modified",
-            Self::Unsupported => "Unsupported",
-        }
-        .to_string()
+impl Display for FileStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Added => "Added",
+                Self::Deleted => "Deleted",
+                Self::Modified => "Modified",
+                Self::Unsupported => "Unsupported",
+            }
+        )
     }
 }
 
@@ -57,7 +60,6 @@ impl Repository {
         revwalk.push(to)?;
 
         let oids = revwalk
-            .into_iter()
             .map(|oid| {
                 let oid = oid.ok()?;
                 from.ne(&Some(oid)).then_some(oid)
@@ -100,7 +102,6 @@ impl Repository {
                 // save info for each changed file
                 let changes = diff
                     .deltas()
-                    .into_iter()
                     .filter_map(|delta| {
                         let new_file = delta.new_file();
                         let path = new_file.path()?;
