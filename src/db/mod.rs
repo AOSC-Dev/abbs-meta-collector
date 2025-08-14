@@ -98,19 +98,19 @@ where
 }
 
 fn get_full_version(pkg: &Package) -> String {
-    let epoch = Some(pkg.epoch).filter(|x| *x != 0).map(|x| x.to_string());
-    let release = Some(pkg.release.clone()).filter(|x| x != "0");
-
     // epoch:version-release
     let mut full_version = String::new();
-    if let Some(epoch) = &epoch {
-        full_version += epoch;
+
+    if pkg.epoch != 0 {
+        full_version += &pkg.epoch.to_string();
         full_version += ":";
     }
+
     full_version += &pkg.version;
-    if let Some(release) = &release {
+
+    if pkg.release != "0" {
         full_version += "-";
-        full_version += release;
+        full_version += &pkg.release;
     }
 
     full_version
