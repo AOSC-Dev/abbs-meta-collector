@@ -27,6 +27,8 @@ async fn main() -> Result<()> {
         repo: ref repos,
     } = Config::from_file(opt.config)?;
 
+    git2::opts::strict_hash_verification(false);
+
     for repo in repos {
         info!("scan {}/{}", repo.name, repo.branch);
         do_scan_and_update(global, repo).await?;
